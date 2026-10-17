@@ -237,6 +237,13 @@ func (s *WorkItemService) UpdateWorkItem(ctx context.Context, id int64, in domai
 		} else if existing.CompletedAt != nil && in.Status != domain.StatusCompleted {
 			existing.CompletedAt = nil
 		}
+
+		// Sesuaikan progress_percentage jika pekerjaan tidak memiliki subtask
+		var subtaskCount int
+		_ = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM subtasks WHERE work_item_id = ?", id).Scan(&subtaskCount)
+		if subtaskCount == 0 {
+			existing.ProgressPercentage = domain.CalculateProgress(0, 0, in.Status)
+		}
 	}
 
 	// Jika tidak ada perubahan, langsung kembalikan data lama

@@ -51,7 +51,7 @@ func TestFrontendEmbeddedAssetsServing(t *testing.T) {
 
 	// Pastikan elemen utama ada di halaman
 	requiredSnippets := []string{
-		"Compliance Workspace v1.0",
+		"Compliance Workspace",
 		"Dashboard",
 		"Work Register",
 		"Activity Log",
@@ -210,5 +210,72 @@ func TestJavaScriptSyntaxValidation(t *testing.T) {
 		if braceDepth != 0 {
 			t.Fatalf("Kurung kurawal tidak seimbang pada %s: kedalaman kurung tersisa = %d", file, braceDepth)
 		}
+	}
+}
+
+// TestBrandingAssetsServing memverifikasi bahwa aset favicon dan logo sidebar dilayani dengan HTTP 200
+func TestBrandingAssetsServing(t *testing.T) {
+	_, baseURL, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	client := &http.Client{}
+
+	// 1. Uji GET /favicon.ico (wajib HTTP 200 dan Content-Type image/x-icon)
+	respFav, err := client.Get(baseURL + "/favicon.ico")
+	if err != nil {
+		t.Fatalf("Gagal mengakses /favicon.ico: %v", err)
+	}
+	defer respFav.Body.Close()
+
+	if respFav.StatusCode != http.StatusOK {
+		t.Errorf("Ekspektasi 200 OK untuk /favicon.ico, didapat: %d", respFav.StatusCode)
+	}
+	favContentType := respFav.Header.Get("Content-Type")
+	if !strings.Contains(favContentType, "image/x-icon") && !strings.Contains(favContentType, "image/vnd.microsoft.icon") {
+		t.Errorf("Content-Type /favicon.ico harus memuat icon mime, didapat: %s", favContentType)
+	}
+	favBytes, _ := io.ReadAll(respFav.Body)
+	if len(favBytes) == 0 {
+		t.Errorf("/favicon.ico tidak boleh kosong (0 byte)")
+	}
+
+	// 2. Uji GET /favicon.svg
+	respSvg, err := client.Get(baseURL + "/favicon.svg")
+	if err != nil {
+		t.Fatalf("Gagal mengakses /favicon.svg: %v", err)
+	}
+	defer respSvg.Body.Close()
+	if respSvg.StatusCode != http.StatusOK {
+		t.Errorf("Ekspektasi 200 OK untuk /favicon.svg, didapat: %d", respSvg.StatusCode)
+	}
+
+	// 3. Uji GET /assets/ComplianceWorkspace_logo_full_horizontal_white.png (Sidebar Logo)
+	respLogo, err := client.Get(baseURL + "/assets/ComplianceWorkspace_logo_full_horizontal_white.png")
+	if err != nil {
+		t.Fatalf("Gagal mengakses logo sidebar: %v", err)
+	}
+	defer respLogo.Body.Close()
+	if respLogo.StatusCode != http.StatusOK {
+		t.Errorf("Ekspektasi 200 OK untuk logo sidebar, didapat: %d", respLogo.StatusCode)
+	}
+	logoBytes, _ := io.ReadAll(respLogo.Body)
+	if len(logoBytes) == 0 {
+		t.Errorf("Logo sidebar tidak boleh kosong (0 byte)")
+	}
+
+	// 4. Uji GET / (index.html memuat link favicon dan img logo sidebar)
+	respIndex, err := client.Get(baseURL + "/")
+	if err != nil {
+		t.Fatalf("Gagal mengakses index.html: %v", err)
+	}
+	defer respIndex.Body.Close()
+	indexBytes, _ := io.ReadAll(respIndex.Body)
+	indexStr := string(indexBytes)
+
+	if !strings.Contains(indexStr, `rel="icon" href="/favicon.ico"`) {
+		t.Errorf("index.html harus memuat link rel=\"icon\" href=\"/favicon.ico\"")
+	}
+	if !strings.Contains(indexStr, "ComplianceWorkspace_logo_full_horizontal_white.png") {
+		t.Errorf("index.html harus memuat tag img logo sidebar ComplianceWorkspace_logo_full_horizontal_white.png")
 	}
 }

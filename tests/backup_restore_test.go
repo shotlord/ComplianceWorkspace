@@ -37,7 +37,7 @@ func TestBackupAndRestoreLifecycle(t *testing.T) {
 	workRepo := repository.NewWorkItemRepository(db)
 	actRepo := repository.NewActivityLogRepository(db)
 	svc := service.NewWorkItemService(db, workRepo, actRepo)
-	backupSvc := service.NewBackupService(svc, dbPath, backupDir)
+	backupSvc := service.NewBackupService(svc, nil, nil, dbPath, backupDir)
 	defer func() {
 		if curDB := svc.GetDB(); curDB != nil {
 			_ = curDB.Close()
@@ -164,7 +164,7 @@ func TestRestoreRejectCorruptedOrMaliciousFiles(t *testing.T) {
 	workRepo := repository.NewWorkItemRepository(db)
 	actRepo := repository.NewActivityLogRepository(db)
 	svc := service.NewWorkItemService(db, workRepo, actRepo)
-	backupSvc := service.NewBackupService(svc, dbPath, backupDir)
+	backupSvc := service.NewBackupService(svc, nil, nil, dbPath, backupDir)
 	defer func() {
 		if curDB := svc.GetDB(); curDB != nil {
 			_ = curDB.Close()

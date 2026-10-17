@@ -30,15 +30,19 @@ type BackupItem struct {
 type BackupService struct {
 	mu              sync.Mutex
 	workItemService *WorkItemService
+	taskMgmtSvc    *TaskManagementService
+	importSvc       *ImportService
 	dbPath          string
 	backupDir       string
 }
 
-func NewBackupService(workItemService *WorkItemService, dbPath, backupDir string) *BackupService {
+func NewBackupService(workItemService *WorkItemService, taskMgmtSvc *TaskManagementService, importSvc *ImportService, dbPath, backupDir string) *BackupService {
 	return &BackupService{
 		workItemService: workItemService,
-		dbPath:          dbPath,
-		backupDir:       backupDir,
+		taskMgmtSvc:    taskMgmtSvc,
+		importSvc:      importSvc,
+		dbPath:         dbPath,
+		backupDir:      backupDir,
 	}
 }
 
@@ -237,6 +241,12 @@ func (s *BackupService) RestoreBackup(ctx context.Context, filename string) erro
 	}
 
 	s.workItemService.SetDB(newDB)
+	if s.taskMgmtSvc != nil {
+		s.taskMgmtSvc.SetDB(newDB)
+	}
+	if s.importSvc != nil {
+		s.importSvc.SetDB(newDB)
+	}
 	return nil
 }
 

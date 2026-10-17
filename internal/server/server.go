@@ -26,9 +26,17 @@ type Server struct {
 	workItemService *service.WorkItemService
 	backupService   *service.BackupService
 	exportService   *service.ExportService
+	taskMgmtService *service.TaskManagementService
+	importService   *service.ImportService
 }
 
-func NewServer(addr string, workItemService *service.WorkItemService, backupService *service.BackupService, exportService *service.ExportService) (*Server, error) {
+func NewServer(
+	addr string,
+	workItemService *service.WorkItemService,
+	backupService *service.BackupService,
+	exportService *service.ExportService,
+	optionalServices ...interface{},
+) (*Server, error) {
 	// Pastikan binding hanya ke 127.0.0.1
 	if !strings.HasPrefix(addr, "127.0.0.1:") {
 		return nil, errors.New("keamanan: server hanya diizinkan mengikat ke 127.0.0.1")
@@ -39,11 +47,25 @@ func NewServer(addr string, workItemService *service.WorkItemService, backupServ
 		return nil, fmt.Errorf("gagal mendengarkan pada %s: %w", addr, err)
 	}
 
+	var tmSvc *service.TaskManagementService
+	var impSvc *service.ImportService
+
+	for _, opt := range optionalServices {
+		switch s := opt.(type) {
+		case *service.TaskManagementService:
+			tmSvc = s
+		case *service.ImportService:
+			impSvc = s
+		}
+	}
+
 	s := &Server{
 		listener:        ln,
 		workItemService: workItemService,
 		backupService:   backupService,
 		exportService:   exportService,
+		taskMgmtService: tmSvc,
+		importService:   impSvc,
 	}
 
 	mux := http.NewServeMux()
@@ -96,6 +118,36 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/work-items/{id}/activities", s.handleAddActivity)
 	mux.HandleFunc("GET /api/work-items/{id}/activities", s.handleListActivities)
 
+	// Endpoint Subtask, Checklist, Kategori, Template & Recurring (Sprint 2)
+	if s.taskMgmtService != nil {
+		// Subtask & Checklist
+		mux.HandleFunc("GET /api/work-items/{id}/subtasks", s.handleListSubtasks)
+		mux.HandleFunc("POST /api/work-items/{id}/subtasks", s.handleCreateSubtask)
+		mux.HandleFunc("PUT /api/subtasks/{id}", s.handleUpdateSubtask)
+		mux.HandleFunc("DELETE /api/subtasks/{id}", s.handleDeleteSubtask)
+
+		// Categories
+		mux.HandleFunc("GET /api/categories", s.handleListCategories)
+		mux.HandleFunc("POST /api/categories", s.handleCreateCategory)
+		mux.HandleFunc("PUT /api/categories/{id}", s.handleUpdateCategory)
+		mux.HandleFunc("DELETE /api/categories/{id}", s.handleDeleteCategory)
+
+		// Work Templates
+		mux.HandleFunc("GET /api/templates", s.handleListTemplates)
+		mux.HandleFunc("GET /api/templates/{id}", s.handleGetTemplate)
+		mux.HandleFunc("POST /api/templates", s.handleCreateTemplate)
+		mux.HandleFunc("PUT /api/templates/{id}", s.handleUpdateTemplate)
+		mux.HandleFunc("DELETE /api/templates/{id}", s.handleDeleteTemplate)
+		mux.HandleFunc("POST /api/templates/{id}/apply", s.handleApplyTemplate)
+
+		// Recurring Tasks
+		mux.HandleFunc("GET /api/recurring-schedules", s.handleListRecurringSchedules)
+		mux.HandleFunc("POST /api/recurring-schedules", s.handleCreateRecurringSchedule)
+		mux.HandleFunc("PUT /api/recurring-schedules/{id}", s.handleUpdateRecurringSchedule)
+		mux.HandleFunc("DELETE /api/recurring-schedules/{id}", s.handleDeleteRecurringSchedule)
+		mux.HandleFunc("POST /api/recurring-schedules/trigger", s.handleTriggerRecurring)
+	}
+
 	// Endpoint Backup & Restore
 	if s.backupService != nil {
 		mux.HandleFunc("GET /api/backups", s.handleListBackups)
@@ -109,9 +161,31 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 		mux.HandleFunc("GET /api/export/activity-logs", s.handleExportActivityLogs)
 	}
 
+	// Endpoint Data Import Center (Sprint 3)
+	if s.importService != nil {
+		mux.HandleFunc("POST /api/import/preview", s.handleImportPreview)
+		mux.HandleFunc("POST /api/import/commit", s.handleImportCommit)
+		mux.HandleFunc("GET /api/import/history", s.handleListImportHistory)
+		mux.HandleFunc("GET /api/import/batches/{id}", s.handleGetImportBatch)
+		mux.HandleFunc("POST /api/import/batches/{id}/compensate", s.handleCompensateImportBatch)
+		mux.HandleFunc("GET /api/import/batches/{id}/error-report", s.handleGetImportErrorReport)
+		mux.HandleFunc("GET /api/import/template/csv", s.handleGetCSVTemplate)
+		mux.HandleFunc("GET /api/import/template/xlsx", s.handleGetXLSXTemplate)
+	}
+
 	// Aset Frontend Statis (Embedded)
 	sub, err := fs.Sub(web.StaticFS, "static")
 	if err == nil {
+		mux.HandleFunc("GET /favicon.ico", func(w http.ResponseWriter, r *http.Request) {
+			icoData, err := fs.ReadFile(sub, "favicon.ico")
+			if err != nil {
+				http.NotFound(w, r)
+				return
+			}
+			w.Header().Set("Content-Type", "image/x-icon")
+			w.Header().Set("Cache-Control", "public, max-age=86400")
+			_, _ = w.Write(icoData)
+		})
 		mux.Handle("/", http.FileServer(http.FS(sub)))
 	}
 }

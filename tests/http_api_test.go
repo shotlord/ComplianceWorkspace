@@ -42,7 +42,7 @@ func setupTestServer(t *testing.T) (*server.Server, string, func()) {
 	svc := service.NewWorkItemService(db, workRepo, activityRepo)
 	exportSvc := service.NewExportService(workRepo, activityRepo)
 	backupDir := filepath.Join(tempDir, "backups")
-	backupSvc := service.NewBackupService(svc, dbPath, backupDir)
+	backupSvc := service.NewBackupService(svc, nil, nil, dbPath, backupDir)
 
 	// Bind pada port bebas di 127.0.0.1
 	srv, err := server.NewServer("127.0.0.1:0", svc, backupSvc, exportSvc)

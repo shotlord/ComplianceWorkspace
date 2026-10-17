@@ -1,6 +1,6 @@
-# Compliance Workspace v1.0
+# Compliance Workspace v1.1.0
 
-Aplikasi web lokal, mandiri (*portable*), dan *offline-first* yang dirancang khusus untuk **Compliance Officer** guna mencatat penugasan kepatuhan (*Work Items*) serta jejak audit aktivitas (*Activity Log*) secara terstruktur, aman, dan tanpa biaya operasional.
+Aplikasi web lokal, mandiri (*portable*), dan *offline-first* yang dirancang khusus untuk **Compliance Officer** guna mencatat penugasan kepatuhan (*Work Items*), subtask & checklist, manajemen kategori, template pekerjaan, tugas berulang (*recurring tasks*), pusat impor massal (*Data Import Center*), serta jejak audit aktivitas (*Activity Log*) secara terstruktur, aman, dan tanpa biaya operasional.
 
 ---
 
@@ -11,8 +11,10 @@ Aplikasi web lokal, mandiri (*portable*), dan *offline-first* yang dirancang khu
 - [Persyaratan Sistem](#persyaratan-sistem)
 - [Cara Memperoleh Executable (GitHub Releases)](#cara-memperoleh-executable-github-releases)
 - [Cara Menjalankan Aplikasi](#cara-menjalankan-aplikasi)
+- [Prosedur Upgrade dari v1.0.0 ke v1.1.0](#prosedur-upgrade-dari-v100-ke-v110)
 - [Cara Melakukan Build Portabel Mandiri](#cara-melakukan-build-portabel-mandiri)
 - [Pencadangan (Backup) & Pemulihan (Restore)](#pencadangan-backup--pemulihan-restore)
+- [Pusat Impor Data (CSV & Excel XLSX)](#pusat-impor-data-csv--excel-xlsx)
 - [Ekspor Laporan (CSV Kompatibel Excel)](#ekspor-laporan-csv-kompatibel-excel)
 - [Keamanan & Privasi](#keamanan--privasi)
 - [Dokumentasi Lanjutan](#dokumentasi-lanjutan)
@@ -21,9 +23,9 @@ Aplikasi web lokal, mandiri (*portable*), dan *offline-first* yang dirancang khu
 
 ## Ikhtisar
 
-Compliance Workspace v1.0 dibangun untuk menjawab kebutuhan pelacakan aktivitas kepatuhan yang portabel dan dapat dipindahkan antar-laptop tanpa memerlukan instalasi interpreter bahasa (seperti Python), lingkungan Node.js, layanan server database eksternal, maupun ketergantungan pada koneksi internet dan cloud API berbayar.
+Compliance Workspace v1.1.0 dibangun untuk menjawab kebutuhan pelacakan aktivitas kepatuhan yang portabel dan dapat dipindahkan antar-laptop tanpa memerlukan instalasi interpreter bahasa (seperti Python), lingkungan Node.js, layanan server database eksternal, maupun ketergantungan pada koneksi internet dan cloud API berbayar.
 
-Seluruh antarmuka web modern telah disematkan langsung ke dalam biner eksekusi (*single executable binary*), dan basis data disimpan secara lokal menggunakan mesin SQLite murni dalam folder `data/` yang diresolusi relatif terhadap lokasi biner fisik.
+Seluruh antarmuka web modern telah disematkan langsung ke dalam biner eksekusi (*single executable binary*) dengan icon Windows tersemat resmi, dan basis data disimpan secara lokal menggunakan mesin SQLite murni dalam folder `data/` yang diresolusi relatif terhadap lokasi biner fisik.
 
 ---
 
@@ -32,20 +34,33 @@ Seluruh antarmuka web modern telah disematkan langsung ke dalam biner eksekusi (
 ### 1. Dashboard Ringkasan Kepatuhan
 - Metrik visual seketika untuk: Total Pekerjaan, Belum Mulai, Dalam Proses, Menunggu, Selesai, dan Melewati Deadline (*Overdue*).
 - Indikator peringatan dini untuk pekerjaan yang membutuhkan perhatian segera.
+- Kalkulasi progres rata-rata seluruh pekerjaan kepatuhan aktif.
 
-### 2. Work Register (Pencatatan Penugasan)
+### 2. Work Register & Task Enhancement (v1.1.0)
 - Manajemen siklus hidup pekerjaan: Pembuatan, Peninjauan Rincian, Pembaruan Informasi, dan Pengarsipan (*Archive/Soft Delete*).
 - Kode penugasan unik berurutan otomatis: format **`CMP-YYYY-NNNNNN`** (misal: `CMP-2026-000001`).
-- Atribut lengkap: Judul, Deskripsi, Kategori, Pemberi Tugas, Tanggal Diterima, Batas Waktu (*Due Date*), Prioritas (*Low*, *Normal*, *High*, *Critical*), dan Status.
-- Fasilitas pencarian teks bebas instan serta penyaringan multibaris (*multi-filter*) berdasarkan status, kategori, dan prioritas.
+- **Subtask & Checklist**: Merinci setiap penugasan ke dalam langkah-langkah kerja terukur yang dapat dicentang secara bertahap.
+- **Kalkulasi Otomatis Progress**: Persentase progres (`progress_percentage`: 0% - 100%) dihitung otomatis berbasis rasio subtask selesai atau estimasi status pekerjaan.
+- **Master Kategori**: Pengelolaan klasifikasi pekerjaan dengan warna visual yang dapat disesuaikan.
+- **Work Templates**: Pembuatan cetak biru penugasan berulang dengan subtask bawaan dan durasi estimasi.
+- **Recurring Tasks**: Penjadwalan pekerjaan rutin otomatis (harian, mingguan, bulanan, kuartalan, tahunan) dengan proteksi *idempotency* anti-duplikasi.
 
-### 3. Activity Log (Jejak Audit Kronologis)
+### 3. Data Import Center (v1.1.0)
+- Wizard 4 tahap: Pilih Berkas -> Pemetaan Kolom -> Pratinjau & Validasi (Dry-Run) -> Komit & Ringkasan.
+- Mendukung berkas spreadsheet Microsoft Excel (`.xlsx`) dan CSV (dengan/tanpa UTF-8 BOM).
+- Pemetaan kolom cerdas (*auto-suggest mapping*) untuk mempermudah migrasi data spreadsheet.
+- Validasi read-only pada tahap pratinjau tanpa memodifikasi basis data.
+- Deteksi duplikasi ganda: duplikasi dalam berkas yang sama (*in-file*) dan duplikasi terhadap basis data SQLite existing berbasis kombinasi `Judul + Tanggal Diterima + Pemberi Tugas`.
+- Snapshot cadangan otomatis (*pre-commit backup safety*) sebelum transaksi impor dikomit.
+- Riwayat batch impor dan fasilitas pembatalan kompensasi (*Compensate Rollback*) aman.
+
+### 4. Activity Log (Jejak Audit Kronologis)
 - Garis waktu aktivitas (*timeline*) per pekerjaan yang bersifat **append-only** (tidak dapat dihapus atau ditimpa).
-- Pencatatan otomatis oleh sistem setiap kali terjadi pembuatan pekerjaan, perubahan status, pengeditan atribut, pengarsipan, atau pemulihan.
+- Pencatatan otomatis oleh sistem setiap kali terjadi pembuatan pekerjaan, perubahan status, penambahan/penyelesaian subtask, impor batch, pengarsipan, atau pemulihan.
 - Formulir penambahan catatan progres manual oleh petugas.
 - Dilindungi oleh trigger database SQLite `RAISE(ABORT)` untuk mencegah manipulasi data riwayat audit.
 
-### 4. Deadline Tracker (Pelacak Tenggat Waktu)
+### 5. Deadline Tracker (Pelacak Tenggat Waktu)
 - Pengelompokan tugas berdasarkan urgensi:
   - **Terlambat (*Overdue*)**: Pekerjaan yang telah melampaui tenggat waktu.
   - **Jatuh Tempo Hari Ini**: Penugasan yang harus diselesaikan pada hari berjalan.
@@ -53,13 +68,13 @@ Seluruh antarmuka web modern telah disematkan langsung ke dalam biner eksekusi (
   - **Tanpa Deadline**: Pekerjaan berkategori fleksibel tanpa tanggal target.
 - Pekerjaan yang telah selesai (*completed*) atau dibatalkan (*cancelled*) otomatis dikeluarkan dari penghitungan deadline aktif.
 
-### 5. Settings, Backup & Restore
+### 6. Settings, Backup & Restore
 - Pencadangan konsisten database SQLite menggunakan perintah mesin `VACUUM INTO` ke folder `backups/`.
-- Verifikasi integritas otomatis pada setiap berkas cadangan melalui `PRAGMA integrity_check`.
-- Pemulihan (*restore*) aman bertingkat yang otomatis membuat salinan darurat (*safety snapshot*) dari database aktif sebelum penggantian data dilakukan.
+- Verifikasi integritas otomatis pada setiap berkas cadangan melalui `PRAGMA integrity_check` dan `PRAGMA foreign_key_check`.
+- Pemulihan (*restore*) instan tanpa mematikan aplikasi dengan pembuatan salinan darurat (*safety snapshot*) sebelum database ditimpa.
 - Pengaturan preferensi zona waktu tampilan (default: `Asia/Jakarta`).
 
-### 6. Ekspor Data Excel (CSV dengan BOM)
+### 7. Ekspor Data Excel (CSV dengan BOM)
 - Ekspor seluruh daftar pekerjaan atau log aktivitas ke format CSV standar.
 - Disertai **UTF-8 Byte Order Mark (BOM)** agar langsung terbuka rapi dengan format teks dan karakter non-ASCII yang benar pada Microsoft Excel.
 - Proteksi aktif terhadap ancaman **CSV Formula Injection** (`=`, `+`, `-`, `@`, `\t`, `\r`).
@@ -133,21 +148,32 @@ Pengguna akhir tidak perlu menginstal Go atau mengompilasi kode program:
 
 ---
 
+## Prosedur Upgrade dari v1.0.0 ke v1.1.0
+
+Bagi pengguna yang telah menggunakan Compliance Workspace v1.0.0:
+
+1. **Pencadangan Pengaman**: Pastikan aplikasi v1.0.0 telah dihentikan (tidak berjalan). Salin folder `data/` Anda (`data/compliance.db`) ke lokasi aman.
+2. **Penggantian Biner**: Salin berkas `ComplianceWorkspace.exe` v1.1.0 ke dalam folder aplikasi Anda, menggantikan biner lama.
+3. **Keutuhan Data**: Jangan menghapus atau memodifikasi folder `data/` dan `backups/`.
+4. **Migrasi Otomatis**: Jalankan `ComplianceWorkspace.exe` v1.1.0. Sistem migrasi inkremental secara otomatis mendeteksi basis data v1.0.0, membuat snapshot pra-migrasi otomatis, menjalankan verifikasi integritas, dan menerapkan pembaruan skema v1.1.0 tanpa menghilangkan pekerjaan lama.
+
+---
+
 ## Cara Melakukan Build Portabel Mandiri
 
-Tersedia skrip PowerShell otomatis untuk menghasilkan paket distribusi rilis yang bersih:
+Tersedia skrip PowerShell otomatis dan *reproducible* untuk menghasilkan biner dengan resource icon tersemat:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\build-portable.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\build-windows.ps1
 ```
 
 Skrip ini secara otomatis akan:
-1. Memvalidasi sintaks JavaScript dan menjalankan seluruh unit test Go (`go test ./...` dan `go vet ./...`).
-2. Mengompilasi biner mandiri Windows AMD64 dengan `CGO_ENABLED=0` dan optimasi `-ldflags "-s -w"`.
-3. Menyiapkan folder rilis `release/ComplianceWorkspace-v1.0-Windows-x64/` beserta folder kosong `data/`, `backups/`, dan `exports/`.
-4. Menyertakan dokumentasi `README.txt` dan `VERSION.txt`.
-5. Mengompresi paket ke `ComplianceWorkspace-v1.0-Windows-x64.zip`.
-6. Menghitung dan menyimpan nilai checksum SHA-256 ke `release/checksums-sha256.txt`.
+1. Memverifikasi ketersediaan Go toolchain dan aset ikon resmi.
+2. Memasang dan menjalankan `go-winres` untuk menghasilkan resource PE `.syso` pada package `main`.
+3. Memvalidasi sintaks JavaScript dan menjalankan seluruh unit test Go (`go test ./...` dan `go vet ./...`).
+4. Mengompilasi biner mandiri Windows AMD64 dengan `CGO_ENABLED=0` dan optimasi `-ldflags "-s -w"`.
+5. Memverifikasi integritas metadata Windows PE dan ekstraksi shell icon.
+6. Menghitung nilai checksum SHA-256.
 
 Untuk menguji hasil biner di sandbox terisolasi:
 ```powershell

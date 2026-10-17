@@ -72,7 +72,11 @@ const API = (() => {
 
     if (!res.ok) {
       const errorMsg = responseData?.error || responseData?.message || `Permintaan gagal (${res.status})`;
-      throw new Error(errorMsg);
+      const err = new Error(errorMsg);
+      if (responseData && typeof responseData === "object") {
+        Object.assign(err, responseData);
+      }
+      throw err;
     }
 
     return responseData;
@@ -134,6 +138,109 @@ const API = (() => {
     restoreBackup: (filename) => request("/api/backups/restore", {
       method: "POST",
       body: { filename }
-    })
+    }),
+
+    // Subtask & Checklist Endpoints (Sprint 2)
+    listSubtasks: (workItemId) => request(`/api/work-items/${encodeURIComponent(workItemId)}/subtasks`),
+
+    createSubtask: (workItemId, payload) => request(`/api/work-items/${encodeURIComponent(workItemId)}/subtasks`, {
+      method: "POST",
+      body: payload
+    }),
+
+    updateSubtask: (id, payload) => request(`/api/subtasks/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      body: payload
+    }),
+
+    deleteSubtask: (id) => request(`/api/subtasks/${encodeURIComponent(id)}`, {
+      method: "DELETE"
+    }),
+
+    // Categories Endpoints
+    listCategories: (all = false) => request(`/api/categories${all ? "?all=true" : ""}`),
+
+    createCategory: (payload) => request("/api/categories", {
+      method: "POST",
+      body: payload
+    }),
+
+    updateCategory: (id, payload) => request(`/api/categories/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      body: payload
+    }),
+
+    deleteCategory: (id) => request(`/api/categories/${encodeURIComponent(id)}`, {
+      method: "DELETE"
+    }),
+
+    // Work Templates Endpoints
+    listTemplates: () => request("/api/templates"),
+
+    getTemplate: (id) => request(`/api/templates/${encodeURIComponent(id)}`),
+
+    createTemplate: (payload) => request("/api/templates", {
+      method: "POST",
+      body: payload
+    }),
+
+    updateTemplate: (id, payload) => request(`/api/templates/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      body: payload
+    }),
+
+    deleteTemplate: (id) => request(`/api/templates/${encodeURIComponent(id)}`, {
+      method: "DELETE"
+    }),
+
+    applyTemplate: (id, receivedOn) => request(`/api/templates/${encodeURIComponent(id)}/apply`, {
+      method: "POST",
+      body: { received_on: receivedOn }
+    }),
+
+    // Recurring Tasks Endpoints
+    listRecurringSchedules: () => request("/api/recurring-schedules"),
+
+    createRecurringSchedule: (payload) => request("/api/recurring-schedules", {
+      method: "POST",
+      body: payload
+    }),
+
+    updateRecurringSchedule: (id, payload) => request(`/api/recurring-schedules/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      body: payload
+    }),
+
+    deleteRecurringSchedule: (id) => request(`/api/recurring-schedules/${encodeURIComponent(id)}`, {
+      method: "DELETE"
+    }),
+
+    triggerRecurring: (asOfDate) => request("/api/recurring-schedules/trigger", {
+      method: "POST",
+      body: { as_of_date: asOfDate }
+    }),
+
+    // Data Import Center Endpoints (Sprint 3)
+    previewImport: (formData) => request("/api/import/preview", {
+      method: "POST",
+      body: formData
+    }),
+
+    commitImport: (formData) => request("/api/import/commit", {
+      method: "POST",
+      body: formData
+    }),
+
+    listImportHistory: (limit = 20, offset = 0) => request(`/api/import/history?limit=${encodeURIComponent(limit)}&offset=${encodeURIComponent(offset)}`),
+
+    getImportBatch: (id) => request(`/api/import/batches/${encodeURIComponent(id)}`),
+
+    compensateBatch: (id, force = false) => request(`/api/import/batches/${encodeURIComponent(id)}/compensate${force ? "?force=true" : ""}`, {
+      method: "POST"
+    }),
+
+    getImportErrorReportUrl: (id) => `/api/import/batches/${encodeURIComponent(id)}/error-report`,
+    getCSVTemplateUrl: () => "/api/import/template/csv",
+    getXLSXTemplateUrl: () => "/api/import/template/xlsx"
   };
 })();

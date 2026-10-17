@@ -71,9 +71,9 @@ func (r *WorkItemRepository) CreateTx(ctx context.Context, tx *sql.Tx, item *dom
 	query := `
 		INSERT INTO work_items (
 			work_code, title, description, category, requested_by,
-			received_on, due_on, priority, status, completed_at,
-			created_at, updated_at, archived_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			received_on, due_on, priority, status, progress_percentage,
+			completed_at, created_at, updated_at, archived_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 	var completedAtStr *string
 	if item.CompletedAt != nil {
@@ -92,8 +92,8 @@ func (r *WorkItemRepository) CreateTx(ctx context.Context, tx *sql.Tx, item *dom
 
 	res, err := tx.ExecContext(ctx, query,
 		item.WorkCode, item.Title, item.Description, item.Category, item.RequestedBy,
-		item.ReceivedOn, item.DueOn, item.Priority, item.Status, completedAtStr,
-		createdAtStr, updatedAtStr, archivedAtStr,
+		item.ReceivedOn, item.DueOn, item.Priority, item.Status, item.ProgressPercentage,
+		completedAtStr, createdAtStr, updatedAtStr, archivedAtStr,
 	)
 	if err != nil {
 		return fmt.Errorf("gagal mengeksekusi insert pekerjaan: %w", err)
@@ -112,7 +112,7 @@ func (r *WorkItemRepository) UpdateTx(ctx context.Context, tx *sql.Tx, item *dom
 	query := `
 		UPDATE work_items SET
 			title = ?, description = ?, category = ?, requested_by = ?,
-			received_on = ?, due_on = ?, priority = ?, status = ?,
+			received_on = ?, due_on = ?, priority = ?, status = ?, progress_percentage = ?,
 			completed_at = ?, updated_at = ?, archived_at = ?
 		WHERE id = ?
 	`
@@ -132,7 +132,7 @@ func (r *WorkItemRepository) UpdateTx(ctx context.Context, tx *sql.Tx, item *dom
 
 	res, err := tx.ExecContext(ctx, query,
 		item.Title, item.Description, item.Category, item.RequestedBy,
-		item.ReceivedOn, item.DueOn, item.Priority, item.Status,
+		item.ReceivedOn, item.DueOn, item.Priority, item.Status, item.ProgressPercentage,
 		completedAtStr, updatedAtStr, archivedAtStr, item.ID,
 	)
 	if err != nil {
@@ -150,13 +150,33 @@ func (r *WorkItemRepository) UpdateTx(ctx context.Context, tx *sql.Tx, item *dom
 	return nil
 }
 
+// UpdateProgressTx memperbarui nilai progress_percentage pada pekerjaan
+func (r *WorkItemRepository) UpdateProgressTx(ctx context.Context, tx *sql.Tx, id int64, progress int) error {
+	nowStr := time.Now().UTC().Format(time.RFC3339Nano)
+	query := "UPDATE work_items SET progress_percentage = ?, updated_at = ? WHERE id = ?"
+	res, err := tx.ExecContext(ctx, query, progress, nowStr, id)
+	if err != nil {
+		return fmt.Errorf("gagal mengupdate progress_percentage: %w", err)
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return fmt.Errorf("pekerjaan dengan ID %d tidak ditemukan", id)
+	}
+	return nil
+}
+
 // GetByID mengambil satu pekerjaan berdasarkan ID
 func (r *WorkItemRepository) GetByID(ctx context.Context, id int64) (*domain.WorkItem, error) {
 	query := `
 		SELECT
 			id, work_code, title, description, category, requested_by,
-			received_on, due_on, priority, status, completed_at,
-			created_at, updated_at, archived_at
+			received_on, due_on, priority, status, progress_percentage, completed_at,
+			created_at, updated_at, archived_at,
+			(SELECT COUNT(*) FROM subtasks WHERE work_item_id = work_items.id) AS subtask_count,
+			(SELECT COUNT(*) FROM subtasks WHERE work_item_id = work_items.id AND is_completed = 1) AS completed_subtask_count
 		FROM work_items
 		WHERE id = ?
 	`
@@ -169,8 +189,10 @@ func (r *WorkItemRepository) GetByIDTx(ctx context.Context, tx *sql.Tx, id int64
 	query := `
 		SELECT
 			id, work_code, title, description, category, requested_by,
-			received_on, due_on, priority, status, completed_at,
-			created_at, updated_at, archived_at
+			received_on, due_on, priority, status, progress_percentage, completed_at,
+			created_at, updated_at, archived_at,
+			(SELECT COUNT(*) FROM subtasks WHERE work_item_id = work_items.id) AS subtask_count,
+			(SELECT COUNT(*) FROM subtasks WHERE work_item_id = work_items.id AND is_completed = 1) AS completed_subtask_count
 		FROM work_items
 		WHERE id = ?
 	`
@@ -235,8 +257,10 @@ func (r *WorkItemRepository) List(ctx context.Context, filter WorkItemFilter) ([
 	query := fmt.Sprintf(`
 		SELECT
 			id, work_code, title, description, category, requested_by,
-			received_on, due_on, priority, status, completed_at,
-			created_at, updated_at, archived_at
+			received_on, due_on, priority, status, progress_percentage, completed_at,
+			created_at, updated_at, archived_at,
+			(SELECT COUNT(*) FROM subtasks WHERE work_item_id = work_items.id) AS subtask_count,
+			(SELECT COUNT(*) FROM subtasks WHERE work_item_id = work_items.id AND is_completed = 1) AS completed_subtask_count
 		FROM work_items
 		%s
 		ORDER BY %s %s, id DESC
@@ -285,10 +309,13 @@ func scanWorkItem(scanner rowScanner) (*domain.WorkItem, error) {
 		&dueOn,
 		&item.Priority,
 		&item.Status,
+		&item.ProgressPercentage,
 		&completedAtStr,
 		&createdAtStr,
 		&updatedAtStr,
 		&archivedAtStr,
+		&item.SubtaskCount,
+		&item.CompletedSubtaskCount,
 	)
 	if err != nil {
 		return nil, err

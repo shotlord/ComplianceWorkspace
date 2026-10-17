@@ -100,6 +100,20 @@ body {
   margin-bottom: 8px;
 }
 
+.brand-logo-container {
+  display: flex;
+  align-items: center;
+  margin: 6px 0 4px;
+}
+
+.brand-logo {
+  max-width: 100%;
+  height: auto;
+  max-height: 44px;
+  object-fit: contain;
+  display: block;
+}
+
 .brand-title {
   font-size: 16px;
   font-weight: 700;
@@ -1025,6 +1039,7 @@ body {
   .app-sidebar .brand-title,
   .app-sidebar .brand-subtitle,
   .app-sidebar .brand-badge,
+  .app-sidebar .brand-logo-container,
   .app-sidebar .nav-text,
   .app-sidebar .sidebar-footer {
     display: none;
@@ -1042,4 +1057,186 @@ body {
   .content-body {
     padding: 20px 16px;
   }
+}
+
+/* =============================================================================
+   Sprint 2: Subtask, Checklist, Progress, Category, & Recurring Tasks
+   ============================================================================= */
+
+.subtask-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  transition: background-color 0.15s ease;
+}
+
+.subtask-item:hover {
+  background-color: var(--bg-muted);
+}
+
+.subtask-item.completed .subtask-title {
+  text-decoration: line-through;
+  color: var(--text-muted);
+}
+
+.subtask-checkbox {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.subtask-title {
+  flex: 1;
+  font-size: 13px;
+}
+
+.subtask-due {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-muted);
+  color: var(--text-muted);
+}
+
+.btn-delete-subtask {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+}
+
+.btn-delete-subtask:hover {
+  color: var(--danger);
+  background-color: var(--danger-subtle);
+}
+
+/* Progress Bar */
+.progress-container {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.progress-bar-bg {
+  background-color: var(--border-color);
+  height: 8px;
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  background-color: var(--primary);
+  border-radius: var(--radius-full);
+  transition: width 0.3s ease;
+}
+
+.progress-bar-fill.success {
+  background-color: var(--success);
+}
+
+.progress-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-muted);
+  color: var(--text-main);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Category Badge Dynamic Color */
+.category-badge-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: 11px;
+  font-weight: 600;
+  color: #ffffff;
+  line-height: 1.4;
+}
+
+/* Tab Navigation */
+.tab-nav {
+  display: flex;
+  gap: 8px;
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 16px;
+}
+
+.tab-btn {
+  padding: 8px 16px;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.tab-btn:hover {
+  color: var(--text-main);
+}
+
+.tab-btn.active {
+  color: var(--primary);
+  border-bottom-color: var(--primary);
+}
+
+/* Data Import Center Styles */
+.import-stepper .step-item {
+  cursor: default;
+  user-select: none;
+}
+.upload-dropzone {
+  border: 2px dashed var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 36px 20px;
+  text-align: center;
+  background-color: var(--bg-subtle);
+  transition: border-color 0.2s, background-color 0.2s;
+  cursor: pointer;
+}
+.upload-dropzone:hover, .upload-dropzone.dragover {
+  border-color: var(--primary);
+  background-color: var(--primary-subtle);
+}
+
+
+/* Modal Dialog Fixes for Viewport Responsiveness & Sticky Action Footer (BUG-004) */
+.modal-card {
+  max-height: calc(100vh - 40px) !important;
+}
+
+.modal-card form {
+  display: flex !important;
+  flex-direction: column !important;
+  flex: 1 !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+}
+
+.modal-header {
+  flex-shrink: 0 !important;
+}
+
+.modal-body {
+  flex: 1 !important;
+  min-height: 0 !important;
+  overflow-y: auto !important;
+}
+
+.modal-footer {
+  flex-shrink: 0 !important;
 }

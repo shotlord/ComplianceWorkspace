@@ -1,4 +1,4 @@
-﻿# Compliance Workspace - Git Ignore
+# Compliance Workspace - Git Ignore
 
 # UAT and archived test data
 /uat/
@@ -18,9 +18,10 @@
 *.sqlite
 *.sqlite3
 
-# Executables and generated archives
+# Executables and archives
 *.exe
 *.zip
+
 
 # Temporary test directories
 /temp-portability-sandbox-*/
