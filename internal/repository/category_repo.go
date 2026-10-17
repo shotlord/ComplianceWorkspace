@@ -149,19 +149,35 @@ func (r *CategoryRepository) Update(ctx context.Context, cat *domain.Category) e
 	return nil
 }
 
-// Delete menonaktifkan kategori (soft delete) untuk mempertahankan nilai historis pekerjaan
+// Delete menghapus baris kategori secara permanen dari database
 func (r *CategoryRepository) Delete(ctx context.Context, id int64) error {
 	cat, err := r.GetByID(ctx, id)
 	if err != nil {
 		return err
 	}
 	if cat.IsDefault {
-		return errors.New("kategori default sistem dilindungi dan tidak dapat dihapus atau dinonaktifkan")
+		return errors.New("kategori default sistem dilindungi dan tidak dapat dihapus")
 	}
 
-	res, err := r.getDB().ExecContext(ctx, "UPDATE categories SET is_active = 0 WHERE id = ?;", id)
+	res, err := r.getDB().ExecContext(ctx, "DELETE FROM categories WHERE id = ?;", id)
 	if err != nil {
-		return fmt.Errorf("gagal menonaktifkan kategori: %w", err)
+		return fmt.Errorf("gagal menghapus kategori: %w", err)
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return fmt.Errorf("kategori dengan ID %d tidak ditemukan", id)
+	}
+	return nil
+}
+
+// DeleteTx menghapus baris kategori secara permanen dalam transaksi yang diberikan
+func (r *CategoryRepository) DeleteTx(ctx context.Context, tx *sql.Tx, id int64) error {
+	res, err := tx.ExecContext(ctx, "DELETE FROM categories WHERE id = ?;", id)
+	if err != nil {
+		return fmt.Errorf("gagal menghapus kategori: %w", err)
 	}
 	rows, err := res.RowsAffected()
 	if err != nil {

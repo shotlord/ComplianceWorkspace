@@ -2031,7 +2031,8 @@ function renderCategoryTable(categories) {
             description: c.description,
             is_active: !c.is_active
           });
-          UI.showToast(`Status kategori "${c.name}" diubah menjadi ${c.is_active ? "nonaktif" : "aktif"}`, "info");
+          const newStatus = !c.is_active ? "diaktifkan" : "dinonaktifkan";
+          UI.showToast(`Kategori "${c.name}" berhasil ${newStatus}`, "info");
           await loadCategories();
         } catch (err) {
           UI.showToast(`Gagal mengubah status kategori: ${err.message}`, "error");
@@ -2039,18 +2040,22 @@ function renderCategoryTable(categories) {
       });
 
       const btnDelete = document.createElement("button");
-      btnDelete.className = "btn btn-secondary btn-sm";
+      btnDelete.className = "btn btn-danger btn-sm";
       btnDelete.textContent = "Hapus";
       btnDelete.addEventListener("click", () => {
-        showConfirmDialog("Hapus Kategori", `Apakah Anda yakin ingin menghapus / menonaktifkan kategori "${c.name}"?`, async () => {
-          try {
-            const res = await API.deleteCategory(c.id);
-            UI.showToast(res.message || "Kategori berhasil diproses", "success");
-            await loadCategories();
-          } catch (err) {
-            UI.showToast(`Gagal menghapus kategori: ${err.message}`, "error");
+        showConfirmDialog(
+          "Hapus Kategori Permanen",
+          `Apakah Anda yakin ingin menghapus kategori "${c.name}" secara permanen? Tindakan ini tidak dapat dibatalkan.`,
+          async () => {
+            try {
+              const res = await API.deleteCategory(c.id);
+              UI.showToast(res.message || `Kategori "${c.name}" berhasil dihapus`, "success");
+              await loadCategories();
+            } catch (err) {
+              UI.showToast(err.message || "Gagal menghapus kategori", "error");
+            }
           }
-        });
+        );
       });
 
       btnGroup.append(btnToggle, btnDelete);
@@ -2134,7 +2139,8 @@ function renderManageCategoryTable(categories) {
             description: c.description,
             is_active: !c.is_active
           });
-          UI.showToast(`Status kategori "${c.name}" diubah`, "info");
+          const newStatus = !c.is_active ? "diaktifkan" : "dinonaktifkan";
+          UI.showToast(`Kategori "${c.name}" berhasil ${newStatus}`, "info");
           await loadCategories();
           if (AppState.categoryModalCaller) {
             populateCategorySelects(null, AppState.categoryModalCaller);
@@ -2145,21 +2151,25 @@ function renderManageCategoryTable(categories) {
       });
 
       const btnDelete = document.createElement("button");
-      btnDelete.className = "btn btn-secondary btn-sm";
+      btnDelete.className = "btn btn-danger btn-sm";
       btnDelete.textContent = "Hapus";
       btnDelete.addEventListener("click", () => {
-        showConfirmDialog("Hapus Kategori", `Apakah Anda yakin ingin menghapus / menonaktifkan kategori "${c.name}"?`, async () => {
-          try {
-            const res = await API.deleteCategory(c.id);
-            UI.showToast(res.message || "Kategori berhasil diproses", "success");
-            await loadCategories();
-            if (AppState.categoryModalCaller) {
-              populateCategorySelects(null, AppState.categoryModalCaller);
+        showConfirmDialog(
+          "Hapus Kategori Permanen",
+          `Apakah Anda yakin ingin menghapus kategori "${c.name}" secara permanen? Tindakan ini tidak dapat dibatalkan.`,
+          async () => {
+            try {
+              const res = await API.deleteCategory(c.id);
+              UI.showToast(res.message || `Kategori "${c.name}" berhasil dihapus`, "success");
+              await loadCategories();
+              if (AppState.categoryModalCaller) {
+                populateCategorySelects(null, AppState.categoryModalCaller);
+              }
+            } catch (err) {
+              UI.showToast(err.message || "Gagal menghapus kategori", "error");
             }
-          } catch (err) {
-            UI.showToast(`Gagal menghapus kategori: ${err.message}`, "error");
           }
-        });
+        );
       });
 
       btnGroup.append(btnToggle, btnDelete);

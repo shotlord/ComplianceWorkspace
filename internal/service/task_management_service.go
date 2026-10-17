@@ -413,7 +413,77 @@ func (s *TaskManagementService) UpdateCategory(ctx context.Context, id int64, in
 }
 
 func (s *TaskManagementService) DeleteCategory(ctx context.Context, id int64) error {
-	return s.categoryRepo.Delete(ctx, id)
+	tx, err := s.getDB().BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("gagal memulai transaksi: %w", err)
+	}
+	defer tx.Rollback()
+
+	// 1. Ambil data kategori untuk memeriksa keberadaan dan status default
+	var catName string
+	var isDefault int
+	queryCat := "SELECT name, is_default FROM categories WHERE id = ?;"
+	if err := tx.QueryRowContext(ctx, queryCat, id).Scan(&catName, &isDefault); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("kategori dengan ID %d tidak ditemukan", id)
+		}
+		return fmt.Errorf("gagal memeriksa kategori: %w", err)
+	}
+
+	// 2. Kategori sistem bawaan (default) dilindungi dan tidak boleh dihapus
+	if isDefault == 1 {
+		return errors.New("kategori default sistem dilindungi dan tidak dapat dihapus")
+	}
+
+	// 3. Periksa referensi pada work_items (termasuk pekerjaan yang diarsipkan)
+	var workCount int
+	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM work_items WHERE category = ?;", catName).Scan(&workCount); err != nil {
+		return fmt.Errorf("gagal memeriksa referensi pekerjaan: %w", err)
+	}
+
+	// 4. Periksa referensi pada work_templates
+	var templateCount int
+	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM work_templates WHERE category = ?;", catName).Scan(&templateCount); err != nil {
+		return fmt.Errorf("gagal memeriksa referensi template: %w", err)
+	}
+
+	// 5. Periksa referensi pada recurring_schedules
+	var recurringCount int
+	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM recurring_schedules WHERE category = ?;", catName).Scan(&recurringCount); err != nil {
+		return fmt.Errorf("gagal memeriksa referensi jadwal berulang: %w", err)
+	}
+
+	// 6. Tolak penghapusan apabila masih ada referensi yang menggunakan kategori ini
+	if workCount > 0 || templateCount > 0 || recurringCount > 0 {
+		var parts []string
+		if workCount > 0 {
+			parts = append(parts, fmt.Sprintf("%d pekerjaan", workCount))
+		}
+		if templateCount > 0 {
+			parts = append(parts, fmt.Sprintf("%d template", templateCount))
+		}
+		if recurringCount > 0 {
+			parts = append(parts, fmt.Sprintf("%d jadwal berulang", recurringCount))
+		}
+
+		var usageStr string
+		if len(parts) == 1 {
+			usageStr = parts[0]
+		} else if len(parts) == 2 {
+			usageStr = fmt.Sprintf("%s dan %s", parts[0], parts[1])
+		} else {
+			usageStr = fmt.Sprintf("%s, dan %s", strings.Join(parts[:len(parts)-1], ", "), parts[len(parts)-1])
+		}
+
+		return fmt.Errorf("Kategori tidak dapat dihapus karena masih digunakan oleh %s. Nonaktifkan kategori atau pindahkan referensinya terlebih dahulu.", usageStr)
+	}
+
+	// 7. Lakukan hard delete pada baris kategori
+	if err := s.categoryRepo.DeleteTx(ctx, tx, id); err != nil {
+		return err
+	}
+
+	return tx.Commit()
 }
 
 // -----------------------------------------------------------------------------

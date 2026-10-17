@@ -302,9 +302,25 @@ func TestCategoryManagementLifecycle(t *testing.T) {
 		t.Fatalf("Gagal membuat pekerjaan dengan kategori: %v", err)
 	}
 
-	// Hapus kategori yang sedang dipakai -> harus soft-delete (is_active = 0), bukan hard delete
-	if err := taskSvc.DeleteCategory(ctx, newCat.ID); err != nil {
-		t.Fatalf("Soft-delete kategori yang terpakai gagal: %v", err)
+	// 5. Uji Penghapusan ditolak jika kategori sedang digunakan oleh pekerjaan aktif
+	err = taskSvc.DeleteCategory(ctx, newCat.ID)
+	if err == nil {
+		t.Fatalf("Penghapusan kategori yang sedang digunakan seharusnya ditolak")
+	}
+	if !strings.Contains(err.Error(), "masih digunakan oleh 1 pekerjaan") {
+		t.Errorf("Pesan error tidak informatif: %v", err)
+	}
+
+	// Nonaktifkan kategori via UpdateCategory
+	falseVal := false
+	_, err = taskSvc.UpdateCategory(ctx, updatedCat.ID, domain.UpdateCategoryInput{
+		Name:        updatedCat.Name,
+		Description: updatedCat.Description,
+		Color:       updatedCat.Color,
+		IsActive:    &falseVal,
+	})
+	if err != nil {
+		t.Fatalf("Gagal menonaktifkan kategori: %v", err)
 	}
 
 	// ListCategories(onlyActive = true) tidak boleh memuat kategori yang telah dinonaktifkan
@@ -328,12 +344,12 @@ func TestCategoryManagementLifecycle(t *testing.T) {
 		if c.Name == "Investigasi Fraud & Etika" {
 			foundDeactivated = true
 			if c.IsActive {
-				t.Errorf("Kategori yang di-soft-delete harus memiliki is_active = false")
+				t.Errorf("Kategori yang dinonaktifkan harus memiliki is_active = false")
 			}
 		}
 	}
 	if !foundDeactivated {
-		t.Errorf("Kategori yang di-soft-delete tidak ditemukan di daftar all categories")
+		t.Errorf("Kategori yang dinonaktifkan tidak ditemukan di daftar all categories")
 	}
 
 	// 6. Uji Reaktivasi saat membuat ulang kategori dengan nama yang sama persis
@@ -889,5 +905,314 @@ func TestRecurringIdempotencyDatabaseConstraint(t *testing.T) {
 		t.Errorf("Harusnya insert langsung ditolak oleh UNIQUE INDEX uq_work_items_recurring_period, tapi berhasil!")
 	} else {
 		t.Logf("Sukses: duplikasi berhasil dicegah di level database dengan pesan: %v", err)
+	}
+}
+
+// TestCategoryHardDeleteVsDeactivation menguji pemisahan aksi hapus permanen (hard delete)
+// dari status aktivasi (is_active), serta perlindungan integritas relasional data.
+func TestCategoryHardDeleteVsDeactivation(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "test_cat_delete.db")
+
+	db, err := database.OpenDB(dbPath)
+	if err != nil {
+		t.Fatalf("Gagal membuka DB: %v", err)
+	}
+	defer db.Close()
+
+	ctx := context.Background()
+	if err := database.Migrate(ctx, db); err != nil {
+		t.Fatalf("Gagal migrasi DB: %v", err)
+	}
+
+	workRepo := repository.NewWorkItemRepository(db)
+	actRepo := repository.NewActivityLogRepository(db)
+	subRepo := repository.NewSubtaskRepository(db)
+	catRepo := repository.NewCategoryRepository(db)
+	tplRepo := repository.NewWorkTemplateRepository(db)
+	recRepo := repository.NewRecurringRepository(db)
+
+	taskSvc := service.NewTaskManagementService(db, workRepo, actRepo, subRepo, catRepo, tplRepo, recRepo)
+	workSvc := service.NewWorkItemService(db, workRepo, actRepo)
+
+	// 1. Buat kategori custom "Test"
+	catTest, err := taskSvc.CreateCategory(ctx, domain.CreateCategoryInput{
+		Name:        "Test",
+		Description: "Kategori untuk pengujian hard delete vs deactivation",
+		Color:       "#3b82f6",
+	})
+	if err != nil {
+		t.Fatalf("Gagal membuat kategori custom 'Test': %v", err)
+	}
+	if !catTest.IsActive || catTest.IsDefault {
+		t.Fatalf("Status awal kategori 'Test' salah: IsActive=%v, IsDefault=%v", catTest.IsActive, catTest.IsDefault)
+	}
+
+	// 2. Nonaktifkan kategori -> is_active = false, baris tetap ada di database
+	falseVal := false
+	updatedInactive, err := taskSvc.UpdateCategory(ctx, catTest.ID, domain.UpdateCategoryInput{
+		Name:        catTest.Name,
+		Description: catTest.Description,
+		Color:       catTest.Color,
+		IsActive:    &falseVal,
+	})
+	if err != nil {
+		t.Fatalf("Gagal menonaktifkan kategori 'Test': %v", err)
+	}
+	if updatedInactive.IsActive {
+		t.Errorf("Kategori harusnya IsActive = false setelah dinonaktifkan")
+	}
+
+	// Verifikasi di DB fisik: baris tetap ada
+	var dbIsActive int
+	err = db.QueryRowContext(ctx, "SELECT is_active FROM categories WHERE id = ?", catTest.ID).Scan(&dbIsActive)
+	if err != nil {
+		t.Fatalf("Kategori harusnya tetap ada di DB saat dinonaktifkan: %v", err)
+	}
+	if dbIsActive != 0 {
+		t.Errorf("Nilai is_active di DB harus 0, didapat: %d", dbIsActive)
+	}
+
+	// List active tidak memuat "Test", tapi list all memuat "Test"
+	activeCats, err := taskSvc.ListCategories(ctx, true)
+	if err != nil {
+		t.Fatalf("Gagal list active categories: %v", err)
+	}
+	for _, c := range activeCats {
+		if c.Name == "Test" {
+			t.Errorf("Kategori nonaktif tidak boleh muncul di list active")
+		}
+	}
+	allCats, err := taskSvc.ListCategories(ctx, false)
+	if err != nil {
+		t.Fatalf("Gagal list all categories: %v", err)
+	}
+	var foundInactive bool
+	for _, c := range allCats {
+		if c.Name == "Test" {
+			foundInactive = true
+			if c.IsActive {
+				t.Errorf("Kategori di list all harus berstatus IsActive = false")
+			}
+		}
+	}
+	if !foundInactive {
+		t.Errorf("Kategori nonaktif harus tetap muncul di list all")
+	}
+
+	// 3. Aktifkan kembali -> is_active = true
+	trueVal := true
+	updatedActive, err := taskSvc.UpdateCategory(ctx, catTest.ID, domain.UpdateCategoryInput{
+		Name:        catTest.Name,
+		Description: catTest.Description,
+		Color:       catTest.Color,
+		IsActive:    &trueVal,
+	})
+	if err != nil {
+		t.Fatalf("Gagal mengaktifkan kembali kategori 'Test': %v", err)
+	}
+	if !updatedActive.IsActive {
+		t.Errorf("Kategori harusnya IsActive = true setelah diaktifkan kembali")
+	}
+
+	activeCats, err = taskSvc.ListCategories(ctx, true)
+	if err != nil {
+		t.Fatalf("Gagal list active categories: %v", err)
+	}
+	var foundActive bool
+	for _, c := range activeCats {
+		if c.Name == "Test" {
+			foundActive = true
+		}
+	}
+	if !foundActive {
+		t.Errorf("Kategori yang diaktifkan kembali harus muncul di list active")
+	}
+
+	// 4. Hapus kategori custom yang tidak terikat data -> baris terhapus permanen dari database
+	if err := taskSvc.DeleteCategory(ctx, catTest.ID); err != nil {
+		t.Fatalf("Gagal menghapus kategori 'Test' yang tidak terikat data: %v", err)
+	}
+
+	// Verifikasi hard delete dari DB fisik
+	var count int
+	err = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM categories WHERE id = ?", catTest.ID).Scan(&count)
+	if err != nil {
+		t.Fatalf("Query check DB gagal: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("Baris kategori 'Test' harusnya terhapus secara permanen (count=0), didapat: %d", count)
+	}
+	_, err = catRepo.GetByID(ctx, catTest.ID)
+	if err == nil {
+		t.Errorf("GetByID harus mengembalikan error/ErrNoRows untuk kategori yang sudah di-hard-delete")
+	}
+
+	// 5. Hapus kategori nonaktif yang tidak terikat data -> baris terhapus permanen dari database
+	catInactive, err := taskSvc.CreateCategory(ctx, domain.CreateCategoryInput{
+		Name: "TestInactive",
+	})
+	if err != nil {
+		t.Fatalf("Gagal membuat kategori 'TestInactive': %v", err)
+	}
+	_, err = taskSvc.UpdateCategory(ctx, catInactive.ID, domain.UpdateCategoryInput{
+		Name:     catInactive.Name,
+		IsActive: &falseVal,
+	})
+	if err != nil {
+		t.Fatalf("Gagal menonaktifkan 'TestInactive': %v", err)
+	}
+	if err := taskSvc.DeleteCategory(ctx, catInactive.ID); err != nil {
+		t.Fatalf("Gagal menghapus kategori nonaktif yang tidak terikat: %v", err)
+	}
+	err = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM categories WHERE id = ?", catInactive.ID).Scan(&count)
+	if err != nil || count != 0 {
+		t.Errorf("Kategori nonaktif yang dihapus harus hilang dari DB (count=0), err=%v, count=%d", err, count)
+	}
+
+	// 6. Buat kategori custom "Terkait", lalu buat work item yang menggunakannya
+	catTerkait, err := taskSvc.CreateCategory(ctx, domain.CreateCategoryInput{
+		Name: "Terkait",
+	})
+	if err != nil {
+		t.Fatalf("Gagal membuat kategori 'Terkait': %v", err)
+	}
+	wi, err := workSvc.CreateWorkItem(ctx, domain.CreateWorkItemInput{
+		Title:      "Pekerjaan Terkait Kategori",
+		Category:   "Terkait",
+		ReceivedOn: "2026-10-17",
+		Priority:   domain.PriorityNormal,
+	})
+	if err != nil {
+		t.Fatalf("Gagal membuat work item: %v", err)
+	}
+
+	// Coba hapus kategori -> ditolak dengan pesan informatif
+	err = taskSvc.DeleteCategory(ctx, catTerkait.ID)
+	if err == nil {
+		t.Fatalf("Hapus kategori 'Terkait' seharusnya ditolak karena digunakan oleh work item")
+	}
+	if !strings.Contains(err.Error(), "masih digunakan oleh 1 pekerjaan") {
+		t.Errorf("Pesan error tidak sesuai: %v", err)
+	}
+
+	// Arsipkan work item tersebut
+	if _, err := workSvc.ArchiveWorkItem(ctx, wi.ID); err != nil {
+		t.Fatalf("Gagal mengarsipkan work item: %v", err)
+	}
+
+	// Coba hapus kategori lagi -> tetap ditolak karena work item yang diarsipkan tetap mempertahankan referensi kategori
+	err = taskSvc.DeleteCategory(ctx, catTerkait.ID)
+	if err == nil {
+		t.Fatalf("Hapus kategori 'Terkait' harus tetap ditolak pada work item yang diarsipkan demi integritas historis")
+	}
+	if !strings.Contains(err.Error(), "masih digunakan oleh 1 pekerjaan") {
+		t.Errorf("Pesan error tidak sesuai: %v", err)
+	}
+
+	// 7. Buat kategori custom "TemplateCat", buat work template yang menggunakannya
+	catTemplate, err := taskSvc.CreateCategory(ctx, domain.CreateCategoryInput{
+		Name: "TemplateCat",
+	})
+	if err != nil {
+		t.Fatalf("Gagal membuat kategori 'TemplateCat': %v", err)
+	}
+	_, err = taskSvc.CreateTemplate(ctx, domain.CreateWorkTemplateInput{
+		Name:         "Template Terkait",
+		TitlePattern: "Pola Judul Template {tahun}",
+		Category:     "TemplateCat",
+		Priority:     "normal",
+	})
+	if err != nil {
+		t.Fatalf("Gagal membuat template: %v", err)
+	}
+
+	// Coba hapus kategori "TemplateCat" -> ditolak
+	err = taskSvc.DeleteCategory(ctx, catTemplate.ID)
+	if err == nil {
+		t.Fatalf("Hapus kategori 'TemplateCat' seharusnya ditolak karena digunakan oleh template")
+	}
+	if !strings.Contains(err.Error(), "masih digunakan oleh 1 template") {
+		t.Errorf("Pesan error tidak sesuai: %v", err)
+	}
+
+	// 8. Buat kategori custom "ScheduleCat", buat recurring schedule yang menggunakannya
+	catSchedule, err := taskSvc.CreateCategory(ctx, domain.CreateCategoryInput{
+		Name: "ScheduleCat",
+	})
+	if err != nil {
+		t.Fatalf("Gagal membuat kategori 'ScheduleCat': %v", err)
+	}
+	_, err = taskSvc.CreateRecurringSchedule(ctx, domain.CreateRecurringScheduleInput{
+		Title:         "Jadwal Rutin Kategori Terkait",
+		Category:      "ScheduleCat",
+		Priority:      "high",
+		Frequency:     "weekly",
+		IntervalValue: 1,
+		StartDate:     "2026-10-17",
+	})
+	if err != nil {
+		t.Fatalf("Gagal membuat recurring schedule: %v", err)
+	}
+
+	// Coba hapus kategori "ScheduleCat" -> ditolak
+	err = taskSvc.DeleteCategory(ctx, catSchedule.ID)
+	if err == nil {
+		t.Fatalf("Hapus kategori 'ScheduleCat' seharusnya ditolak karena digunakan oleh jadwal berulang")
+	}
+	if !strings.Contains(err.Error(), "masih digunakan oleh 1 jadwal berulang") {
+		t.Errorf("Pesan error tidak sesuai: %v", err)
+	}
+
+	// 9. Coba hapus kategori bawaan sistem (is_default = 1) -> ditolak
+	defaultCats, err := taskSvc.ListCategories(ctx, false)
+	if err != nil || len(defaultCats) == 0 {
+		t.Fatalf("Gagal mengambil kategori sistem: %v", err)
+	}
+	var sysCat *domain.Category
+	for _, c := range defaultCats {
+		if c.IsDefault {
+			sysCat = c
+			break
+		}
+	}
+	if sysCat == nil {
+		t.Fatalf("Kategori default sistem tidak ditemukan")
+	}
+	err = taskSvc.DeleteCategory(ctx, sysCat.ID)
+	if err == nil {
+		t.Fatalf("Penghapusan kategori sistem default harusnya ditolak")
+	}
+	if !strings.Contains(err.Error(), "sistem") || !strings.Contains(err.Error(), "tidak dapat dihapus") {
+		t.Errorf("Pesan error kategori sistem salah: %v", err)
+	}
+
+	// 10. Verifikasi bahwa tidak ada activity_log atau work_items yang terhapus secara tidak sengaja
+	var totalWorkItems, totalActivityLogs int
+	err = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM work_items").Scan(&totalWorkItems)
+	if err != nil || totalWorkItems != 1 {
+		t.Errorf("Work items tidak boleh berubah, count=%d, err=%v", totalWorkItems, err)
+	}
+	err = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM activity_logs").Scan(&totalActivityLogs)
+	if err != nil || totalActivityLogs == 0 {
+		t.Errorf("Activity logs harus tetap utuh dan tidak terhapus cascade, count=%d, err=%v", totalActivityLogs, err)
+	}
+
+	// 11. Verifikasi list kategori active & all mengembalikan data yang konsisten
+	finalActive, err := taskSvc.ListCategories(ctx, true)
+	if err != nil {
+		t.Fatalf("Gagal list final active: %v", err)
+	}
+	finalAll, err := taskSvc.ListCategories(ctx, false)
+	if err != nil {
+		t.Fatalf("Gagal list final all: %v", err)
+	}
+	for _, c := range finalAll {
+		if c.Name == "Test" || c.Name == "TestInactive" {
+			t.Errorf("Kategori yang telah di-hard-delete ('%s') tidak boleh muncul di list kategori mana pun", c.Name)
+		}
+	}
+	if len(finalActive) > len(finalAll) {
+		t.Errorf("Jumlah active categories (%d) tidak boleh melebihi all categories (%d)", len(finalActive), len(finalAll))
 	}
 }

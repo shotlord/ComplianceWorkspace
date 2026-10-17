@@ -171,7 +171,7 @@ func (s *Server) handleDeleteCategory(w http.ResponseWriter, r *http.Request) {
 		errorResponse(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	jsonResponse(w, http.StatusOK, map[string]string{"message": "Kategori berhasil dihapus"})
+	jsonResponse(w, http.StatusOK, map[string]string{"message": "Kategori berhasil dihapus secara permanen"})
 }
 
 // -----------------------------------------------------------------------------
