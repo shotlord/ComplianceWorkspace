@@ -193,10 +193,13 @@ const API = (() => {
       method: "DELETE"
     }),
 
-    applyTemplate: (id, receivedOn) => request(`/api/templates/${encodeURIComponent(id)}/apply`, {
-      method: "POST",
-      body: { received_on: receivedOn }
-    }),
+    applyTemplate: (id, payload) => {
+      const body = typeof payload === "string" ? { received_on: payload } : (payload || {});
+      return request(`/api/templates/${encodeURIComponent(id)}/apply`, {
+        method: "POST",
+        body
+      });
+    },
 
     // Recurring Tasks Endpoints
     listRecurringSchedules: () => request("/api/recurring-schedules"),
@@ -217,7 +220,7 @@ const API = (() => {
 
     triggerRecurring: (asOfDate) => request("/api/recurring-schedules/trigger", {
       method: "POST",
-      body: { as_of_date: asOfDate }
+      body: { as_of_date: asOfDate || null }
     }),
 
     // Data Import Center Endpoints (Sprint 3)

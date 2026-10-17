@@ -270,12 +270,10 @@ func (s *Server) handleApplyTemplate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req struct {
-		ReceivedOn string `json:"received_on"`
-	}
+	var req domain.ApplyTemplateInput
 	_ = json.NewDecoder(r.Body).Decode(&req)
 
-	item, err := s.taskMgmtService.ApplyTemplate(r.Context(), tplID, req.ReceivedOn)
+	item, err := s.taskMgmtService.ApplyTemplateWithInput(r.Context(), tplID, req)
 	if err != nil {
 		errorResponse(w, http.StatusBadRequest, err.Error())
 		return
@@ -361,17 +359,33 @@ func (s *Server) handleTriggerRecurring(w http.ResponseWriter, r *http.Request) 
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
 
-	createdItems, err := s.taskMgmtService.TriggerRecurringGeneration(r.Context(), req.AsOfDate)
+	report, err := s.taskMgmtService.TriggerRecurringWithReport(r.Context(), req.AsOfDate)
 	if err != nil {
 		errorResponse(w, http.StatusInternalServerError, fmt.Sprintf("Gagal mengevaluasi jadwal: %v", err))
 		return
 	}
+
+	createdItems := report.CreatedItems
 	if createdItems == nil {
 		createdItems = []*domain.WorkItem{}
 	}
+
+	var message string
+	if len(createdItems) > 0 {
+		message = fmt.Sprintf("Pemeriksaan selesai. %d pekerjaan baru dihasilkan.", len(createdItems))
+	} else if len(report.SkippedDetails) > 0 {
+		firstSkip := report.SkippedDetails[0]
+		message = fmt.Sprintf("Pemeriksaan selesai. 0 pekerjaan baru dihasilkan (Jadwal '%s' dilewati: %s).", firstSkip.Title, firstSkip.Reason)
+	} else {
+		message = "Pemeriksaan selesai. Tidak ada jadwal berulang yang jatuh tempo."
+	}
+
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
-		"message":       fmt.Sprintf("Pemeriksaan selesai. %d pekerjaan baru dihasilkan.", len(createdItems)),
-		"created_count": len(createdItems),
-		"items":         createdItems,
+		"message":         message,
+		"created_count":   len(createdItems),
+		"items":           createdItems,
+		"total_schedules": report.TotalSchedules,
+		"due_schedules":   report.DueSchedules,
+		"skipped":         report.SkippedDetails,
 	})
 }

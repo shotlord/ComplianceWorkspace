@@ -13,6 +13,7 @@ import (
 
 	"compliance-workspace/internal/config"
 	"compliance-workspace/internal/database"
+	"compliance-workspace/internal/domain"
 	"compliance-workspace/internal/repository"
 	"compliance-workspace/internal/server"
 	"compliance-workspace/internal/service"
@@ -63,7 +64,7 @@ func main() {
 	importService.SetBackupService(backupService)
 
 	// Evaluasi awal tugas berulang saat startup
-	today := time.Now().UTC().Format("2006-01-02")
+	today := domain.GetCurrentLocalDate()
 	if genItems, err := taskMgmtService.TriggerRecurringGeneration(ctx, today); err == nil && len(genItems) > 0 {
 		log.Printf("[INFO] Evaluasi startup: %d pekerjaan berulang baru berhasil dibuat.", len(genItems))
 	}
@@ -76,7 +77,7 @@ func main() {
 			select {
 			case <-recurringTicker.C:
 				checkCtx, checkCancel := context.WithTimeout(context.Background(), 30*time.Second)
-				asOf := time.Now().UTC().Format("2006-01-02")
+				asOf := domain.GetCurrentLocalDate()
 				if items, err := taskMgmtService.TriggerRecurringGeneration(checkCtx, asOf); err == nil && len(items) > 0 {
 					log.Printf("[INFO] Evaluasi periodik: %d pekerjaan berulang baru dibuat.", len(items))
 				}

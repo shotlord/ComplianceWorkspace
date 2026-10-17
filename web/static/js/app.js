@@ -35,6 +35,7 @@ const AppState = {
     status: "",
     priority: "",
     category: "",
+    provenance: "",
     include_archived: false,
     sort_by: "received_on",
     sort_order: "DESC"
@@ -188,6 +189,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     await API.init();
     await loadCategories();
     await loadTemplates();
+    await loadRecurringSchedules();
     await loadWorkItems();
     updateLiveClock();
     setInterval(updateLiveClock, 30000);
@@ -340,6 +342,14 @@ function setupFilterListeners() {
     });
   }
 
+  const provenanceSelect = document.getElementById("filterProvenance");
+  if (provenanceSelect) {
+    provenanceSelect.addEventListener("change", (e) => {
+      AppState.filters.provenance = e.target.value;
+      renderWorkRegister();
+    });
+  }
+
   const archivedCheckbox = document.getElementById("filterIncludeArchived");
   if (archivedCheckbox) {
     archivedCheckbox.addEventListener("change", (e) => {
@@ -452,25 +462,51 @@ function populateCategorySelects(preferredValue = null, targetSelectId = null) {
   });
 }
 
+function getWorkItemProvenance(item) {
+  if (item && item.provenance) return item.provenance;
+  const req = (item?.requested_by || "").trim();
+  if (req.startsWith("Jadwal Rutin #")) return "recurring";
+  if (req.toLowerCase().includes("impor") || req.toLowerCase().includes("import")) return "import";
+  if (req.startsWith("Template:")) return "template";
+  return "manual";
+}
+
 async function loadTemplates() {
+  const tbody = document.getElementById("templateTableBody");
+  if (tbody && (!AppState.templates || AppState.templates.length === 0)) {
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-state"><div class="spinner"></div><div>Memuat template...</div></td></tr>';
+  }
   try {
     const tpls = await API.listTemplates();
     AppState.templates = Array.isArray(tpls) ? tpls : [];
     populateTemplateSelects();
+    renderTemplateTable(AppState.templates);
   } catch (err) {
     console.error("Gagal memuat template:", err);
+    if (tbody) {
+      tbody.innerHTML = `<tr><td colspan="6" class="empty-state" style="color: var(--danger);">Gagal memuat template: ${escapeHTML(err.message)}</td></tr>`;
+    }
   }
 }
 
 function populateTemplateSelects() {
+  const seenIds = new Set();
+  const uniqueTemplates = [];
+  (AppState.templates || []).forEach(t => {
+    if (!seenIds.has(t.id)) {
+      seenIds.add(t.id);
+      uniqueTemplates.push(t);
+    }
+  });
+
   const selCreate = document.getElementById("createSelectTemplate");
   if (selCreate) {
     const curVal = selCreate.value;
     selCreate.innerHTML = '<option value="">-- Buat Manual (Tanpa Template) --</option>';
-    AppState.templates.forEach(t => {
+    uniqueTemplates.forEach(t => {
       const opt = document.createElement("option");
       opt.value = t.id;
-      const count = Array.isArray(t.checklist) ? t.checklist.length : 0;
+      const count = Array.isArray(t.checklist_items) ? t.checklist_items.length : (Array.isArray(t.checklist) ? t.checklist.length : 0);
       opt.textContent = `${t.name} (${count} subtask)`;
       if (String(t.id) === String(curVal)) opt.selected = true;
       selCreate.appendChild(opt);
@@ -481,10 +517,10 @@ function populateTemplateSelects() {
   if (selRec) {
     const curVal = selRec.value;
     selRec.innerHTML = '<option value="">-- Tanpa Template (Kosong) --</option>';
-    AppState.templates.forEach(t => {
+    uniqueTemplates.forEach(t => {
       const opt = document.createElement("option");
       opt.value = t.id;
-      const count = Array.isArray(t.checklist) ? t.checklist.length : 0;
+      const count = Array.isArray(t.checklist_items) ? t.checklist_items.length : (Array.isArray(t.checklist) ? t.checklist.length : 0);
       opt.textContent = `${t.name} (${count} subtask)`;
       if (String(t.id) === String(curVal)) opt.selected = true;
       selRec.appendChild(opt);
@@ -526,6 +562,35 @@ function renderDashboard() {
   document.getElementById("metricCompleted").textContent = completed;
   document.getElementById("metricDueSoon").textContent = dueSoon;
   document.getElementById("metricOverdue").textContent = overdue;
+
+  // Ringkasan Jadwal Berulang (ENH-REC-001)
+  const schedules = Array.isArray(AppState.recurringSchedules) ? AppState.recurringSchedules : [];
+  const activeSchedules = schedules.filter(s => s.is_active);
+  const dueSoonSchedules = activeSchedules.filter(s => s.next_run_date && s.next_run_date <= in7Days);
+
+  const activeCategoriesMap = new Set((AppState.categories || []).filter(c => c.is_active).map(c => c.name.toLowerCase()));
+  const attentionSchedules = activeSchedules.filter(s => {
+    const isCatInactive = s.category && !activeCategoriesMap.has(s.category.toLowerCase());
+    const isPastEnd = s.end_date && s.next_run_date > s.end_date;
+    return isCatInactive || isPastEnd;
+  });
+
+  const recActiveEl = document.getElementById("metricRecActive");
+  if (recActiveEl) recActiveEl.textContent = activeSchedules.length;
+  const recDueSoonEl = document.getElementById("metricRecDueSoon");
+  if (recDueSoonEl) recDueSoonEl.textContent = dueSoonSchedules.length;
+  const recAttentionEl = document.getElementById("metricRecAttention");
+  if (recAttentionEl) recAttentionEl.textContent = attentionSchedules.length;
+
+  const btnDashRec = document.getElementById("btnDashboardToRecurring");
+  if (btnDashRec && !btnDashRec.dataset.listenerAttached) {
+    btnDashRec.dataset.listenerAttached = "true";
+    btnDashRec.addEventListener("click", () => {
+      switchView("task_management");
+      const tabBtn = document.querySelector('[data-subtab="recurring"]');
+      if (tabBtn) tabBtn.click();
+    });
+  }
 
   // Render Tabel Pekerjaan Mendesak di Dashboard
   const urgentTableBody = document.getElementById("dashboardUrgentTableBody");
@@ -603,11 +668,16 @@ function renderWorkRegister() {
   if (!tbody) return;
   tbody.innerHTML = "";
 
-  if (AppState.workItems.length === 0) {
+  let itemsToRender = AppState.workItems;
+  if (AppState.filters.provenance) {
+    itemsToRender = itemsToRender.filter(item => getWorkItemProvenance(item) === AppState.filters.provenance);
+  }
+
+  if (itemsToRender.length === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="8" class="empty-state">
-          <div class="empty-state-title">Belum ada data pekerjaan</div>
+        <td colspan="9" class="empty-state">
+          <div class="empty-state-title">Belum ada data pekerjaan${AppState.filters.provenance ? " untuk filter asal ini" : ""}</div>
           <div class="empty-state-desc">Gunakan tombol "Tambah Pekerjaan" untuk mencatat tugas kepatuhan baru.</div>
         </td>
       </tr>
@@ -617,7 +687,7 @@ function renderWorkRegister() {
 
   const today = UI.getTodayYYYYMMDD();
 
-  AppState.workItems.forEach(item => {
+  itemsToRender.forEach(item => {
     const tr = document.createElement("tr");
 
     // Kode
@@ -638,9 +708,27 @@ function renderWorkRegister() {
     catDiv.textContent = item.category || "General";
     tdTitle.append(titleDiv, catDiv);
 
-    // Pemberi Tugas
+    // Pemberi Tugas & Asal Pekerjaan (ENH-REC-001)
     const tdReq = document.createElement("td");
-    tdReq.textContent = item.requested_by || "-";
+    const prov = getWorkItemProvenance(item);
+    const provDiv = document.createElement("div");
+    provDiv.style.marginBottom = "4px";
+
+    if (prov === "recurring") {
+      provDiv.innerHTML = '<span class="badge badge-status-waiting"><span class="badge-dot"></span>Jadwal Rutin</span>';
+    } else if (prov === "import") {
+      provDiv.innerHTML = '<span class="badge badge-status-in_progress"><span class="badge-dot"></span>Impor</span>';
+    } else if (prov === "template") {
+      provDiv.innerHTML = '<span class="badge badge-status-completed"><span class="badge-dot"></span>Template</span>';
+    } else {
+      provDiv.innerHTML = '<span class="badge badge-status-not_started"><span class="badge-dot"></span>Manual</span>';
+    }
+
+    const reqDiv = document.createElement("div");
+    reqDiv.style.fontSize = "12px";
+    reqDiv.textContent = item.requested_by || "-";
+
+    tdReq.append(provDiv, reqDiv);
 
     // Tanggal Diterima
     const tdReceived = document.createElement("td");
@@ -1048,10 +1136,12 @@ function setupModalListeners() {
     btnTriggerRec.addEventListener("click", async () => {
       btnTriggerRec.disabled = true;
       try {
-        const res = await API.triggerRecurring();
-        UI.showToast(`Pemeriksaan jadwal selesai. Dibuat: ${res.generated_count || 0} pekerjaan baru.`, "success");
+        const today = UI.getTodayYYYYMMDD();
+        const res = await API.triggerRecurring(today);
+        UI.showToast(res.message || "Pemeriksaan jadwal selesai.", "success");
         await loadRecurringSchedules();
         await loadWorkItems();
+        renderDashboard();
       } catch (err) {
         UI.showToast(`Gagal memeriksa jadwal: ${err.message}`, "error");
       } finally {
@@ -1106,11 +1196,14 @@ function setupFormListeners() {
       if (!tplId) return;
       const tpl = AppState.templates.find(t => String(t.id) === String(tplId));
       if (tpl) {
-        document.getElementById("createTitle").value = tpl.name;
+        document.getElementById("createTitle").value = tpl.title_pattern || tpl.name;
         const catSel = document.getElementById("createCategory");
         if (catSel) catSel.value = tpl.category || "General";
-        document.getElementById("createPriority").value = tpl.default_priority || "normal";
+        document.getElementById("createPriority").value = tpl.priority || tpl.default_priority || "normal";
         document.getElementById("createDescription").value = tpl.description || "";
+        if (tpl.due_days_offset && document.getElementById("createDueOn")) {
+          document.getElementById("createDueOn").value = UI.getDateOffsetYYYYMMDD(tpl.due_days_offset);
+        }
       }
     });
   }
@@ -1142,23 +1235,29 @@ function setupFormListeners() {
       submitBtn.disabled = true;
 
       try {
-        const newItem = await API.createWorkItem({
-          title,
-          description,
-          category,
-          requested_by: requestedBy,
-          received_on: receivedOn,
-          due_on: dueOn,
-          priority
-        });
-
-        // Terapkan template jika dipilih
+        let newItem;
         if (tplId) {
-          try {
-            await API.applyTemplate(newItem.id, tplId);
-          } catch (tplErr) {
-            console.error("Gagal menerapkan template checklist:", tplErr);
-          }
+          // Buat pekerjaan dari template secara atomik beserta subtask checklist-nya
+          newItem = await API.applyTemplate(tplId, {
+            title,
+            description,
+            category,
+            requested_by: requestedBy,
+            received_on: receivedOn,
+            due_on: dueOn,
+            priority
+          });
+        } else {
+          // Buat pekerjaan manual tanpa template
+          newItem = await API.createWorkItem({
+            title,
+            description,
+            category,
+            requested_by: requestedBy,
+            received_on: receivedOn,
+            due_on: dueOn,
+            priority
+          });
         }
 
         UI.showToast(`Pekerjaan ${newItem.work_code} berhasil dibuat`, "success");

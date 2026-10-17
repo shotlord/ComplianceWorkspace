@@ -1720,3 +1720,294 @@ func TestCategoryMultiModuleRegressionCases(t *testing.T) {
 		t.Errorf("CASE 7: Kategori tidak terpakai harusnya terhapus secara fisik dari DB, didapat count=%d", countUnused)
 	}
 }
+
+// TestUATBatch04_TemplateChecklistAndRecurringIntegration memverifikasi seluruh skenario pengujian UAT
+// untuk integritas data template checklist, recurring tasks generation, dan provenance.
+func TestUATBatch04_TemplateChecklistAndRecurringIntegration(t *testing.T) {
+	_, _, taskSvc, workSvc, cleanup := setupTaskMgmtTestServer(t)
+	defer cleanup()
+
+	db := workSvc.GetDB()
+	ctx := context.Background()
+	today := domain.GetCurrentLocalDate()
+
+	// 1. POST Template dengan 3 checklist
+	tpl, err := taskSvc.CreateTemplate(ctx, domain.CreateWorkTemplateInput{
+		Name:          "FOLRE",
+		TitlePattern:  "REVIEW TEST",
+		Description:   "Template review berkala kepatuhan",
+		Category:      "Audit & Pengawasan",
+		Priority:      domain.PriorityHigh,
+		DueDaysOffset: 5,
+		ChecklistItems: []string{
+			"TEST 1",
+			"TEST 2",
+			"TEST 3",
+		},
+	})
+	if err != nil {
+		t.Fatalf("1. POST Template gagal: %v", err)
+	}
+	if tpl.ID <= 0 {
+		t.Fatalf("1. ID template tidak valid: %d", tpl.ID)
+	}
+
+	// 2. GET List Template mengembalikan data benar
+	list, err := taskSvc.ListTemplates(ctx)
+	if err != nil {
+		t.Fatalf("2. GET List Template gagal: %v", err)
+	}
+	var foundTpl *domain.WorkTemplate
+	for _, it := range list {
+		if it.ID == tpl.ID {
+			foundTpl = it
+			break
+		}
+	}
+	if foundTpl == nil {
+		t.Fatalf("2. Template FOLRE tidak ditemukan dalam List")
+	}
+	if len(foundTpl.ChecklistItems) != 3 {
+		t.Fatalf("2. Checklist items dalam List harus 3, didapat: %d", len(foundTpl.ChecklistItems))
+	}
+
+	// 3. GET Detail Template mengembalikan 3 checklist
+	detail, err := taskSvc.GetTemplate(ctx, tpl.ID)
+	if err != nil {
+		t.Fatalf("3. GET Detail Template gagal: %v", err)
+	}
+	if len(detail.ChecklistItems) != 3 {
+		t.Fatalf("3. Checklist items dalam Detail harus 3, didapat: %d", len(detail.ChecklistItems))
+	}
+	if detail.ChecklistItems[0] != "TEST 1" || detail.ChecklistItems[1] != "TEST 2" || detail.ChecklistItems[2] != "TEST 3" {
+		t.Errorf("3. Isi checklist items tidak sesuai: %v", detail.ChecklistItems)
+	}
+
+	// 4 & 5. Apply Template menghasilkan 3 subtask dan menggunakan Title Pattern
+	wiFromTpl, err := taskSvc.ApplyTemplate(ctx, tpl.ID, today)
+	if err != nil {
+		t.Fatalf("4. Apply Template gagal: %v", err)
+	}
+	if wiFromTpl.Title != "REVIEW TEST" {
+		t.Errorf("5. Judul pekerjaan harus mengikuti title_pattern 'REVIEW TEST', didapat: %s", wiFromTpl.Title)
+	}
+	if wiFromTpl.ProgressPercentage != 0 {
+		t.Errorf("4. Progres awal pekerjaan dengan subtask belum selesai harus 0%%, didapat: %d%%", wiFromTpl.ProgressPercentage)
+	}
+
+	// Verifikasi subtask yang dihasilkan
+	subs, err := taskSvc.ListSubtasks(ctx, wiFromTpl.ID)
+	if err != nil {
+		t.Fatalf("4. Gagal mengambil subtask: %v", err)
+	}
+	if len(subs) != 3 {
+		t.Fatalf("4. Subtask hasil template harus berjumlah 3, didapat: %d", len(subs))
+	}
+	for i, sub := range subs {
+		expectedTitle := fmt.Sprintf("TEST %d", i+1)
+		if sub.Title != expectedTitle {
+			t.Errorf("4. Judul subtask ke-%d salah: didapat '%s', diharapkan '%s'", i+1, sub.Title, expectedTitle)
+		}
+		if sub.IsCompleted {
+			t.Errorf("4. Subtask ke-%d harusnya belum selesai", i+1)
+		}
+	}
+
+	// 6. Verifikasi Provenance pada Work Item hasil template
+	wiQueried, err := workSvc.GetWorkItem(ctx, wiFromTpl.ID)
+	if err != nil {
+		t.Fatalf("6. Gagal mengambil detail pekerjaan: %v", err)
+	}
+	if wiQueried.Provenance != "template" {
+		t.Errorf("6. Provenance pekerjaan dari template harus 'template', didapat: '%s'", wiQueried.Provenance)
+	}
+
+	// 7. Recurring generator menghasilkan Work Item jatuh tempo
+	sch, err := taskSvc.CreateRecurringSchedule(ctx, domain.CreateRecurringScheduleInput{
+		TemplateID:    &tpl.ID,
+		Title:         "TEST 40",
+		Description:   "Pengujian jadwal rutin kepatuhan",
+		Category:      "Audit & Pengawasan",
+		Priority:      domain.PriorityNormal,
+		Frequency:     "weekly",
+		IntervalValue: 1,
+		StartDate:     today, // Jatuh tempo hari ini
+	})
+	if err != nil {
+		t.Fatalf("7. Gagal membuat jadwal berulang: %v", err)
+	}
+	_ = sch
+
+	report1, err := taskSvc.TriggerRecurringWithReport(ctx, today)
+	if err != nil {
+		t.Fatalf("7. TriggerRecurringWithReport gagal: %v", err)
+	}
+	if len(report1.CreatedItems) != 1 {
+		t.Fatalf("7. Harus menghasilkan tepat 1 pekerjaan baru, didapat: %d (skipped: %v)", len(report1.CreatedItems), report1.SkippedDetails)
+	}
+
+	recItem := report1.CreatedItems[0]
+	// 8. Work Register & Dashboard memuat pekerjaan tersebut dengan kode unik
+	if recItem.WorkCode == "" {
+		t.Errorf("8. Kode pekerjaan tidak boleh kosong")
+	}
+	recItemFromRepo, err := workSvc.GetWorkItem(ctx, recItem.ID)
+	if err != nil {
+		t.Fatalf("8. Pekerjaan dari jadwal tidak ditemukan di repo: %v", err)
+	}
+	if recItemFromRepo.Provenance != "recurring" {
+		t.Errorf("8. Provenance pekerjaan berulang harus 'recurring', didapat: '%s'", recItemFromRepo.Provenance)
+	}
+
+	// Verifikasi subtask checklist terpasang dari template
+	recSubs, err := taskSvc.ListSubtasks(ctx, recItem.ID)
+	if err != nil || len(recSubs) != 3 {
+		t.Fatalf("8. Subtask template pada jadwal berulang harus 3, didapat: %d", len(recSubs))
+	}
+
+	// 9. Activity Log mencatat pembuatan otomatis
+	logs, err := workSvc.ListActivities(ctx, recItem.ID)
+	if err != nil || len(logs) == 0 {
+		t.Fatalf("9. Activity log pembuatan otomatis harus tercatat")
+	}
+	if !strings.Contains(logs[0].Description, "jadwal berulang") {
+		t.Errorf("9. Deskripsi log tidak mencatat asal jadwal berulang: %s", logs[0].Description)
+	}
+
+	// 10. Trigger ganda tidak membuat duplicate (Idempotensi)
+	report2, err := taskSvc.TriggerRecurringWithReport(ctx, today)
+	if err != nil {
+		t.Fatalf("10. Trigger kedua gagal: %v", err)
+	}
+	if len(report2.CreatedItems) != 0 {
+		t.Fatalf("10. Trigger kedua tidak boleh membuat duplicate, didapat: %d pekerjaan", len(report2.CreatedItems))
+	}
+	if len(report2.SkippedDetails) == 0 {
+		t.Errorf("10. Laporan harus memuat alasan skip untuk jadwal yang sudah diproses")
+	}
+
+	// 11. Kategori nonaktif menghentikan generasi
+	// Buat jadwal baru dengan kategori kustom yang akan dinonaktifkan
+	catDeact, err := taskSvc.CreateCategory(ctx, domain.CreateCategoryInput{
+		Name: "Kategori Nonaktif Test",
+	})
+	if err != nil {
+		t.Fatalf("11. Buat kategori gagal: %v", err)
+	}
+	schDeact, err := taskSvc.CreateRecurringSchedule(ctx, domain.CreateRecurringScheduleInput{
+		Title:         "Jadwal Kategori Nonaktif",
+		Category:      catDeact.Name,
+		Frequency:     "daily",
+		IntervalValue: 1,
+		StartDate:     today,
+	})
+	if err != nil {
+		t.Fatalf("11. Buat jadwal gagal: %v", err)
+	}
+
+	// Nonaktifkan kategori
+	isFalse := false
+	_, err = taskSvc.UpdateCategory(ctx, catDeact.ID, domain.UpdateCategoryInput{
+		Name:     catDeact.Name,
+		IsActive: &isFalse,
+	})
+	if err != nil {
+		t.Fatalf("11. Nonaktifkan kategori gagal: %v", err)
+	}
+
+	// Evaluasi pemicu: harus dilewati karena kategori nonaktif
+	reportDeact, err := taskSvc.TriggerRecurringWithReport(ctx, today)
+	if err != nil {
+		t.Fatalf("11. Evaluasi jadwal gagal: %v", err)
+	}
+	var skippedForCat bool
+	for _, skip := range reportDeact.SkippedDetails {
+		if skip.ScheduleID == schDeact.ID && strings.Contains(skip.Reason, "sedang nonaktif") {
+			skippedForCat = true
+			break
+		}
+	}
+	if !skippedForCat {
+		t.Errorf("11. Jadwal harus dilewati dengan alasan kategori nonaktif, didapat: %v", reportDeact.SkippedDetails)
+	}
+
+	// 12. Kategori diaktifkan kembali dan penjadwalan dapat dilanjutkan
+	isTrue := true
+	_, err = taskSvc.UpdateCategory(ctx, catDeact.ID, domain.UpdateCategoryInput{
+		Name:     catDeact.Name,
+		IsActive: &isTrue,
+	})
+	if err != nil {
+		t.Fatalf("12. Aktifkan kategori gagal: %v", err)
+	}
+
+	reportReactivated, err := taskSvc.TriggerRecurringWithReport(ctx, today)
+	if err != nil {
+		t.Fatalf("12. Evaluasi pemicu setelah aktivasi gagal: %v", err)
+	}
+	var createdReactivated bool
+	for _, it := range reportReactivated.CreatedItems {
+		if strings.Contains(it.Title, schDeact.Title) {
+			createdReactivated = true
+			break
+		}
+	}
+	if !createdReactivated {
+		t.Errorf("12. Jadwal seharusnya menghasilkan pekerjaan setelah kategori diaktifkan kembali, created=%d", len(reportReactivated.CreatedItems))
+	}
+
+	// 13. Category hard delete tetap PASS (kategori tidak terpakai dapat di-hard-delete)
+	catTemp, err := taskSvc.CreateCategory(ctx, domain.CreateCategoryInput{Name: "Kategori Sementara"})
+	if err != nil {
+		t.Fatalf("13. Buat kategori sementara gagal: %v", err)
+	}
+	if err := taskSvc.DeleteCategory(ctx, catTemp.ID); err != nil {
+		t.Fatalf("13. Hard delete kategori gagal: %v", err)
+	}
+	var countTemp int
+	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM categories WHERE id = ?", catTemp.ID).Scan(&countTemp)
+	if countTemp != 0 {
+		t.Errorf("13. Kategori harus terhapus permanen dari database")
+	}
+
+	// 14. Verifikasi Manual Work Item Provenance
+	manualItem, err := workSvc.CreateWorkItem(ctx, domain.CreateWorkItemInput{
+		Title:       "Pekerjaan Manual Biasa",
+		Category:    "General",
+		RequestedBy: "Staf Kepatuhan",
+		ReceivedOn:  today,
+	})
+	if err != nil {
+		t.Fatalf("14. Gagal buat pekerjaan manual: %v", err)
+	}
+	manualQueried, err := workSvc.GetWorkItem(ctx, manualItem.ID)
+	if err != nil {
+		t.Fatalf("14. Gagal ambil pekerjaan manual: %v", err)
+	}
+	if manualQueried.Provenance != "manual" {
+		t.Errorf("14. Provenance pekerjaan manual harus 'manual', didapat: '%s'", manualQueried.Provenance)
+	}
+
+	// 15. Verifikasi apply template dengan custom detail
+	customTitle := "CUSTOM AUDIT TITLE"
+	customWI, err := taskSvc.ApplyTemplateWithInput(ctx, tpl.ID, domain.ApplyTemplateInput{
+		ReceivedOn:  today,
+		Title:       customTitle,
+		Category:    "Audit & Pengawasan",
+		Priority:    domain.PriorityCritical,
+		RequestedBy: "Direktur Kepatuhan",
+	})
+	if err != nil {
+		t.Fatalf("15. ApplyTemplateWithInput gagal: %v", err)
+	}
+	if customWI.Title != customTitle {
+		t.Errorf("15. Judul custom harus '%s', didapat: '%s'", customTitle, customWI.Title)
+	}
+	if customWI.Priority != domain.PriorityCritical {
+		t.Errorf("15. Prioritas custom harus critical, didapat: '%s'", customWI.Priority)
+	}
+	customSubs, err := taskSvc.ListSubtasks(ctx, customWI.ID)
+	if err != nil || len(customSubs) != 3 {
+		t.Fatalf("15. Subtask pada custom apply harus 3, didapat: %d", len(customSubs))
+	}
+}

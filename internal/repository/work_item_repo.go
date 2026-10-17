@@ -176,7 +176,13 @@ func (r *WorkItemRepository) GetByID(ctx context.Context, id int64) (*domain.Wor
 			received_on, due_on, priority, status, progress_percentage, completed_at,
 			created_at, updated_at, archived_at,
 			(SELECT COUNT(*) FROM subtasks WHERE work_item_id = work_items.id) AS subtask_count,
-			(SELECT COUNT(*) FROM subtasks WHERE work_item_id = work_items.id AND is_completed = 1) AS completed_subtask_count
+			(SELECT COUNT(*) FROM subtasks WHERE work_item_id = work_items.id AND is_completed = 1) AS completed_subtask_count,
+			CASE
+				WHEN work_items.requested_by LIKE 'Jadwal Rutin #%' THEN 'recurring'
+				WHEN EXISTS (SELECT 1 FROM import_items WHERE import_items.work_item_id = work_items.id) THEN 'import'
+				WHEN work_items.requested_by LIKE 'Template: %' THEN 'template'
+				ELSE 'manual'
+			END AS provenance
 		FROM work_items
 		WHERE id = ?
 	`
@@ -192,7 +198,13 @@ func (r *WorkItemRepository) GetByIDTx(ctx context.Context, tx *sql.Tx, id int64
 			received_on, due_on, priority, status, progress_percentage, completed_at,
 			created_at, updated_at, archived_at,
 			(SELECT COUNT(*) FROM subtasks WHERE work_item_id = work_items.id) AS subtask_count,
-			(SELECT COUNT(*) FROM subtasks WHERE work_item_id = work_items.id AND is_completed = 1) AS completed_subtask_count
+			(SELECT COUNT(*) FROM subtasks WHERE work_item_id = work_items.id AND is_completed = 1) AS completed_subtask_count,
+			CASE
+				WHEN work_items.requested_by LIKE 'Jadwal Rutin #%' THEN 'recurring'
+				WHEN EXISTS (SELECT 1 FROM import_items WHERE import_items.work_item_id = work_items.id) THEN 'import'
+				WHEN work_items.requested_by LIKE 'Template: %' THEN 'template'
+				ELSE 'manual'
+			END AS provenance
 		FROM work_items
 		WHERE id = ?
 	`
@@ -260,7 +272,13 @@ func (r *WorkItemRepository) List(ctx context.Context, filter WorkItemFilter) ([
 			received_on, due_on, priority, status, progress_percentage, completed_at,
 			created_at, updated_at, archived_at,
 			(SELECT COUNT(*) FROM subtasks WHERE work_item_id = work_items.id) AS subtask_count,
-			(SELECT COUNT(*) FROM subtasks WHERE work_item_id = work_items.id AND is_completed = 1) AS completed_subtask_count
+			(SELECT COUNT(*) FROM subtasks WHERE work_item_id = work_items.id AND is_completed = 1) AS completed_subtask_count,
+			CASE
+				WHEN work_items.requested_by LIKE 'Jadwal Rutin #%%' THEN 'recurring'
+				WHEN EXISTS (SELECT 1 FROM import_items WHERE import_items.work_item_id = work_items.id) THEN 'import'
+				WHEN work_items.requested_by LIKE 'Template: %%' THEN 'template'
+				ELSE 'manual'
+			END AS provenance
 		FROM work_items
 		%s
 		ORDER BY %s %s, id DESC
@@ -297,6 +315,7 @@ func scanWorkItem(scanner rowScanner) (*domain.WorkItem, error) {
 	var workCode, requestedBy sql.NullString
 	var dueOn sql.NullString
 	var completedAtStr, createdAtStr, updatedAtStr, archivedAtStr sql.NullString
+	var provenance sql.NullString
 
 	err := scanner.Scan(
 		&item.ID,
@@ -316,9 +335,16 @@ func scanWorkItem(scanner rowScanner) (*domain.WorkItem, error) {
 		&archivedAtStr,
 		&item.SubtaskCount,
 		&item.CompletedSubtaskCount,
+		&provenance,
 	)
 	if err != nil {
 		return nil, err
+	}
+
+	if provenance.Valid && provenance.String != "" {
+		item.Provenance = provenance.String
+	} else {
+		item.Provenance = "manual"
 	}
 
 	if workCode.Valid {

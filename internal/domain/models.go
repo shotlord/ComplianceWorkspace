@@ -36,23 +36,38 @@ const (
 
 // WorkItem mewakili entitas pekerjaan dalam sistem
 type WorkItem struct {
-	ID          int64      `json:"id"`
-	WorkCode    string     `json:"work_code"`
-	Title       string     `json:"title"`
-	Description string     `json:"description"`
-	Category    string     `json:"category"`
-	RequestedBy string     `json:"requested_by"`
-	ReceivedOn  string     `json:"received_on"` // YYYY-MM-DD
-	DueOn       *string    `json:"due_on"`      // YYYY-MM-DD opsional
-	Priority    string     `json:"priority"`
+	ID                    int64      `json:"id"`
+	WorkCode              string     `json:"work_code"`
+	Title                 string     `json:"title"`
+	Description           string     `json:"description"`
+	Category              string     `json:"category"`
+	RequestedBy           string     `json:"requested_by"`
+	ReceivedOn            string     `json:"received_on"` // YYYY-MM-DD
+	DueOn                 *string    `json:"due_on"`      // YYYY-MM-DD opsional
+	Priority              string     `json:"priority"`
 	Status                string     `json:"status"`
 	ProgressPercentage    int        `json:"progress_percentage"` // 0-100%
 	SubtaskCount          int        `json:"subtask_count"`
 	CompletedSubtaskCount int        `json:"completed_subtask_count"`
+	Provenance            string     `json:"provenance"` // manual, recurring, import, template
 	CompletedAt           *time.Time `json:"completed_at"` // UTC RFC3339 opsional
 	CreatedAt             time.Time  `json:"created_at"`   // UTC RFC3339
 	UpdatedAt             time.Time  `json:"updated_at"`   // UTC RFC3339
 	ArchivedAt            *time.Time `json:"archived_at"`  // UTC RFC3339 opsional
+}
+
+// DefaultLocation mewakili zona waktu standar Asia/Jakarta (WIB)
+var DefaultLocation = func() *time.Location {
+	loc, err := time.LoadLocation("Asia/Jakarta")
+	if err != nil {
+		return time.FixedZone("WIB", 7*3600)
+	}
+	return loc
+}()
+
+// GetCurrentLocalDate mengembalikan tanggal kalender lokal saat ini dalam format YYYY-MM-DD
+func GetCurrentLocalDate() string {
+	return time.Now().In(DefaultLocation).Format("2006-01-02")
 }
 
 // ActivityLog mewakili catatan log append-only untuk setiap pekerjaan
@@ -439,6 +454,17 @@ func (in *UpdateWorkTemplateInput) Validate() error {
 	}
 	in.ChecklistItems = cleanChecklist
 	return nil
+}
+
+// ApplyTemplateInput mewakili parameter kustomisasi opsional saat membuat pekerjaan dari template
+type ApplyTemplateInput struct {
+	ReceivedOn  string  `json:"received_on"`
+	Title       string  `json:"title"`
+	Description string  `json:"description"`
+	Category    string  `json:"category"`
+	RequestedBy string  `json:"requested_by"`
+	DueOn       *string `json:"due_on"`
+	Priority    string  `json:"priority"`
 }
 
 // RecurringSchedule mewakili jadwal pekerjaan berulang

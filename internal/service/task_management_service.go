@@ -579,13 +579,19 @@ func (s *TaskManagementService) DeleteTemplate(ctx context.Context, id int64) er
 
 // ApplyTemplate membuat pekerjaan baru langsung dari template dan menyertakan checklist bawaan secara atomik
 func (s *TaskManagementService) ApplyTemplate(ctx context.Context, templateID int64, receivedOn string) (*domain.WorkItem, error) {
+	return s.ApplyTemplateWithInput(ctx, templateID, domain.ApplyTemplateInput{ReceivedOn: receivedOn})
+}
+
+// ApplyTemplateWithInput membuat pekerjaan baru dari template dengan parameter kustomisasi opsional secara atomik
+func (s *TaskManagementService) ApplyTemplateWithInput(ctx context.Context, templateID int64, in domain.ApplyTemplateInput) (*domain.WorkItem, error) {
 	tpl, err := s.templateRepo.GetByID(ctx, templateID)
 	if err != nil {
 		return nil, fmt.Errorf("template pekerjaan tidak ditemukan: %w", err)
 	}
 
+	receivedOn := in.ReceivedOn
 	if err := domain.ValidateDateYYYYMMDD(receivedOn); err != nil {
-		receivedOn = time.Now().UTC().Format("2006-01-02")
+		receivedOn = domain.GetCurrentLocalDate()
 	}
 
 	now := time.Now().UTC()
@@ -597,14 +603,45 @@ func (s *TaskManagementService) ApplyTemplate(ctx context.Context, templateID in
 		}
 	}
 
-	// Hitung due_on berdasarkan receivedOn + due_days_offset
+	// Hitung due_on: gunakan in.DueOn jika disuplai; jika tidak, hitung receivedOn + due_days_offset
 	var dueOn *string
-	if tpl.DueDaysOffset >= 0 {
+	if in.DueOn != nil && strings.TrimSpace(*in.DueOn) != "" {
+		trimmed := strings.TrimSpace(*in.DueOn)
+		if err := domain.ValidateDateYYYYMMDD(trimmed); err == nil {
+			dueOn = &trimmed
+		}
+	}
+	if dueOn == nil && tpl.DueDaysOffset >= 0 {
 		recDate, err := time.Parse("2006-01-02", receivedOn)
 		if err == nil {
 			calculatedDue := recDate.AddDate(0, 0, tpl.DueDaysOffset).Format("2006-01-02")
 			dueOn = &calculatedDue
 		}
+	}
+
+	title := strings.TrimSpace(in.Title)
+	if title == "" {
+		title = tpl.TitlePattern
+	}
+
+	desc := strings.TrimSpace(in.Description)
+	if desc == "" {
+		desc = tpl.Description
+	}
+
+	category := strings.TrimSpace(in.Category)
+	if category == "" {
+		category = tpl.Category
+	}
+
+	priority := strings.TrimSpace(in.Priority)
+	if priority == "" || !domain.IsValidPriority(priority) {
+		priority = tpl.Priority
+	}
+
+	requestedBy := strings.TrimSpace(in.RequestedBy)
+	if requestedBy == "" {
+		requestedBy = fmt.Sprintf("Template: %s", tpl.Name)
 	}
 
 	tx, err := s.getDB().BeginTx(ctx, nil)
@@ -620,13 +657,13 @@ func (s *TaskManagementService) ApplyTemplate(ctx context.Context, templateID in
 
 	item := &domain.WorkItem{
 		WorkCode:           code,
-		Title:              tpl.TitlePattern,
-		Description:        tpl.Description,
-		Category:           tpl.Category,
-		RequestedBy:        fmt.Sprintf("Template: %s", tpl.Name),
+		Title:              title,
+		Description:        desc,
+		Category:           category,
+		RequestedBy:        requestedBy,
 		ReceivedOn:         receivedOn,
 		DueOn:              dueOn,
-		Priority:           tpl.Priority,
+		Priority:           priority,
 		Status:             domain.StatusNotStarted,
 		ProgressPercentage: 0,
 		CreatedAt:          now,
@@ -653,11 +690,11 @@ func (s *TaskManagementService) ApplyTemplate(ctx context.Context, templateID in
 	}
 
 	// Catat log
-	desc := fmt.Sprintf("Pekerjaan dibuat dari template '%s' dengan kode %s (%d subtask)", tpl.Name, item.WorkCode, len(tpl.ChecklistItems))
+	actDesc := fmt.Sprintf("Pekerjaan dibuat dari template '%s' dengan kode %s (%d subtask)", tpl.Name, item.WorkCode, len(tpl.ChecklistItems))
 	act := &domain.ActivityLog{
 		WorkItemID:  item.ID,
 		EntryType:   domain.EntryTypeCreated,
-		Description: desc,
+		Description: actDesc,
 		OccurredAt:  now,
 		RecordedAt:  now,
 	}
@@ -791,32 +828,102 @@ func CalculateNextRunDate(currentDate string, frequency string, interval int) (s
 	return next.Format("2006-01-02"), nil
 }
 
+type RecurringEvaluationResult struct {
+	TotalSchedules int                 `json:"total_schedules"`
+	DueSchedules   int                 `json:"due_schedules"`
+	CreatedItems   []*domain.WorkItem  `json:"created_items"`
+	SkippedDetails []RecurringSkipInfo `json:"skipped_details"`
+}
+
+type RecurringSkipInfo struct {
+	ScheduleID  int64  `json:"schedule_id"`
+	Title       string `json:"title"`
+	Reason      string `json:"reason"`
+	NextRunDate string `json:"next_run_date"`
+}
+
 // TriggerRecurringGeneration mengevaluasi jadwal yang jatuh tempo dan menghasilkan pekerjaan baru secara IDEMPOTENT.
-// Kebijakan Offline: Jika aplikasi offline dalam durasi yang lama, sistem tidak membuat puluhan duplikasi
-// tetapi menghasilkan 1 pekerjaan untuk periode saat ini dan memajukan next_run_date ke siklus mendatang.
 func (s *TaskManagementService) TriggerRecurringGeneration(ctx context.Context, asOfDate string) ([]*domain.WorkItem, error) {
+	rep, err := s.TriggerRecurringWithReport(ctx, asOfDate)
+	if err != nil {
+		return nil, err
+	}
+	return rep.CreatedItems, nil
+}
+
+// TriggerRecurringWithReport mengevaluasi jadwal yang jatuh tempo dan menghasilkan laporan evaluasi lengkap beserta alasan skip.
+func (s *TaskManagementService) TriggerRecurringWithReport(ctx context.Context, asOfDate string) (*RecurringEvaluationResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if asOfDate == "" {
-		asOfDate = time.Now().UTC().Format("2006-01-02")
+		asOfDate = domain.GetCurrentLocalDate()
 	}
 
-	dueSchedules, err := s.recurRepo.ListDueSchedules(ctx, asOfDate)
+	allSchedules, err := s.recurRepo.List(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("gagal mengevaluasi jadwal jatuh tempo: %w", err)
+		return nil, fmt.Errorf("gagal mengambil daftar jadwal berulang: %w", err)
 	}
 
-	var createdItems []*domain.WorkItem
+	result := &RecurringEvaluationResult{
+		TotalSchedules: len(allSchedules),
+		CreatedItems:   []*domain.WorkItem{},
+		SkippedDetails: []RecurringSkipInfo{},
+	}
 
-	for _, sch := range dueSchedules {
+	for _, sch := range allSchedules {
+		if !sch.IsActive {
+			result.SkippedDetails = append(result.SkippedDetails, RecurringSkipInfo{
+				ScheduleID:  sch.ID,
+				Title:       sch.Title,
+				Reason:      "Jadwal nonaktif",
+				NextRunDate: sch.NextRunDate,
+			})
+			continue
+		}
+
+		if sch.NextRunDate > asOfDate {
+			result.SkippedDetails = append(result.SkippedDetails, RecurringSkipInfo{
+				ScheduleID:  sch.ID,
+				Title:       sch.Title,
+				Reason:      fmt.Sprintf("Belum jatuh tempo (jadwal berikutnya: %s)", sch.NextRunDate),
+				NextRunDate: sch.NextRunDate,
+			})
+			continue
+		}
+
+		if sch.EndDate != nil && strings.TrimSpace(*sch.EndDate) != "" && sch.NextRunDate > *sch.EndDate {
+			result.SkippedDetails = append(result.SkippedDetails, RecurringSkipInfo{
+				ScheduleID:  sch.ID,
+				Title:       sch.Title,
+				Reason:      fmt.Sprintf("Jadwal sudah melewati tanggal selesai (%s)", *sch.EndDate),
+				NextRunDate: sch.NextRunDate,
+			})
+			continue
+		}
+
+		// Teridentifikasi sebagai jatuh tempo
+		result.DueSchedules++
+
 		// Kebijakan CASE 4: Generator tidak menciptakan pekerjaan baru menggunakan kategori nonaktif
 		if cat, err := s.categoryRepo.GetByName(ctx, sch.Category); err == nil && cat != nil && !cat.IsActive {
+			result.SkippedDetails = append(result.SkippedDetails, RecurringSkipInfo{
+				ScheduleID:  sch.ID,
+				Title:       sch.Title,
+				Reason:      fmt.Sprintf("Kategori '%s' sedang nonaktif", sch.Category),
+				NextRunDate: sch.NextRunDate,
+			})
 			continue
 		}
 
 		// Idempotency Check 1: Jika last_generated_date persis sama dengan next_run_date, lewati
 		if sch.LastGeneratedDate != nil && *sch.LastGeneratedDate == sch.NextRunDate {
+			result.SkippedDetails = append(result.SkippedDetails, RecurringSkipInfo{
+				ScheduleID:  sch.ID,
+				Title:       sch.Title,
+				Reason:      fmt.Sprintf("Sudah diproses untuk tanggal %s", sch.NextRunDate),
+				NextRunDate: sch.NextRunDate,
+			})
 			continue
 		}
 
@@ -853,6 +960,12 @@ func (s *TaskManagementService) TriggerRecurringGeneration(ctx context.Context, 
 			}
 			_ = s.recurRepo.UpdateScheduleRunTx(ctx, tx, sch.ID, targetPeriodDate, nextDate)
 			_ = tx.Commit()
+			result.SkippedDetails = append(result.SkippedDetails, RecurringSkipInfo{
+				ScheduleID:  sch.ID,
+				Title:       sch.Title,
+				Reason:      fmt.Sprintf("Pekerjaan sudah ada untuk periode %s (jadwal dimajukan ke %s)", targetPeriodDate, nextDate),
+				NextRunDate: nextDate,
+			})
 			continue
 		}
 
@@ -934,9 +1047,9 @@ func (s *TaskManagementService) TriggerRecurringGeneration(ctx context.Context, 
 		}
 
 		if err := tx.Commit(); err == nil {
-			createdItems = append(createdItems, item)
+			result.CreatedItems = append(result.CreatedItems, item)
 		}
 	}
 
-	return createdItems, nil
+	return result, nil
 }

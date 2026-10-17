@@ -185,6 +185,39 @@
               </div>
             </div>
           </div>
+
+          <!-- Ringkasan Monitoring Jadwal Berulang (ENH-REC-001) -->
+          <div class="card" style="margin-top: 16px;">
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+              <div class="card-title">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="10"/>
+                  <polyline points="12 6 12 12 16 14"/>
+                </svg>
+                Monitoring Jadwal Berulang (Recurring Tasks)
+              </div>
+              <button type="button" class="btn btn-secondary btn-sm" id="btnDashboardToRecurring">Buka Jadwal Rutin &rarr;</button>
+            </div>
+            <div class="card-body">
+              <div class="metrics-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); margin-bottom: 0;">
+                <div class="metric-card info" style="padding: 12px 16px;">
+                  <div class="metric-label">Jadwal Rutin Aktif</div>
+                  <div class="metric-value" id="metricRecActive" style="font-size: 24px;">0</div>
+                  <div class="metric-subtext">Jadwal aktif dipantau</div>
+                </div>
+                <div class="metric-card warning" style="padding: 12px 16px;">
+                  <div class="metric-label">Mendekati Jatuh Tempo (≤ 7 Hari)</div>
+                  <div class="metric-value" id="metricRecDueSoon" style="font-size: 24px;">0</div>
+                  <div class="metric-subtext">Segera/siap dievaluasi</div>
+                </div>
+                <div class="metric-card danger" style="padding: 12px 16px;">
+                  <div class="metric-label">Perlu Perhatian</div>
+                  <div class="metric-value" id="metricRecAttention" style="font-size: 24px;">0</div>
+                  <div class="metric-subtext">Kategori nonaktif / expired</div>
+                </div>
+              </div>
+            </div>
+          </div>
         </section>
 
         <!-- 2. VIEW: WORK REGISTER -->
@@ -224,6 +257,13 @@
 
                   <select id="filterCategory" class="filter-select">
                     <option value="">Semua Kategori</option>
+                  </select>
+
+                  <select id="filterProvenance" class="filter-select">
+                    <option value="">Semua Asal</option>
+                    <option value="manual">Manual</option>
+                    <option value="recurring">Jadwal Rutin</option>
+                    <option value="import">Impor</option>
                   </select>
 
                   <select id="filterSort" class="filter-select">
