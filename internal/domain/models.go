@@ -539,6 +539,11 @@ type UpdateRecurringScheduleInput struct {
 }
 
 func (in *UpdateRecurringScheduleInput) Validate() error {
+	// Jika hanya mengubah status aktif/nonaktif (toggle is_active)
+	if strings.TrimSpace(in.Title) == "" && strings.TrimSpace(in.Frequency) == "" && in.IsActive != nil {
+		return nil
+	}
+
 	in.Title = strings.TrimSpace(in.Title)
 	if in.Title == "" {
 		return errors.New("judul jadwal berulang wajib diisi")
@@ -559,7 +564,7 @@ func (in *UpdateRecurringScheduleInput) Validate() error {
 		"daily": true, "weekly": true, "monthly": true, "quarterly": true, "yearly": true,
 	}
 	if !validFreq[in.Frequency] {
-		return fmt.Errorf("frekuensi tidak valid: %s", in.Frequency)
+		return fmt.Errorf("frekuensi tidak valid: %s (pilihan: daily, weekly, monthly, quarterly, yearly)", in.Frequency)
 	}
 	if in.IntervalValue <= 0 {
 		in.IntervalValue = 1

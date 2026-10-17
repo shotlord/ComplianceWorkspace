@@ -399,6 +399,7 @@ func (s *TaskManagementService) UpdateCategory(ctx context.Context, id int64, in
 		}
 	}
 
+	oldName := existing.Name
 	existing.Name = in.Name
 	existing.Description = in.Description
 	existing.Color = in.Color
@@ -406,8 +407,33 @@ func (s *TaskManagementService) UpdateCategory(ctx context.Context, id int64, in
 		existing.IsActive = *in.IsActive
 	}
 
-	if err := s.categoryRepo.Update(ctx, existing); err != nil {
+	tx, err := s.getDB().BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("gagal memulai transaksi pembaruan kategori: %w", err)
+	}
+	defer tx.Rollback()
+
+	if err := s.categoryRepo.UpdateTx(ctx, tx, existing); err != nil {
 		return nil, err
+	}
+
+	// Jika nama kategori diperbarui, sinkronkan seluruh referensi
+	// (work_items, work_templates, recurring_schedules) secara transaksional (CASE 6).
+	// Log audit historis (activity_logs) tetap dipertahankan tanpa perubahan.
+	if oldName != in.Name {
+		if _, err := tx.ExecContext(ctx, "UPDATE work_items SET category = ? WHERE category = ?;", in.Name, oldName); err != nil {
+			return nil, fmt.Errorf("gagal menyelaraskan kategori pada pekerjaan: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, "UPDATE work_templates SET category = ? WHERE category = ?;", in.Name, oldName); err != nil {
+			return nil, fmt.Errorf("gagal menyelaraskan kategori pada template: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, "UPDATE recurring_schedules SET category = ? WHERE category = ?;", in.Name, oldName); err != nil {
+			return nil, fmt.Errorf("gagal menyelaraskan kategori pada jadwal berulang: %w", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("gagal commit pembaruan kategori: %w", err)
 	}
 	return existing, nil
 }
@@ -701,6 +727,16 @@ func (s *TaskManagementService) UpdateRecurringSchedule(ctx context.Context, id 
 		return nil, fmt.Errorf("jadwal berulang tidak ditemukan: %w", err)
 	}
 
+	// Jika hanya mengubah status aktif/nonaktif (toggle is_active)
+	if strings.TrimSpace(in.Title) == "" && strings.TrimSpace(in.Frequency) == "" && in.IsActive != nil {
+		existing.IsActive = *in.IsActive
+		existing.UpdatedAt = time.Now().UTC()
+		if err := s.recurRepo.Update(ctx, existing); err != nil {
+			return nil, err
+		}
+		return existing, nil
+	}
+
 	existing.TemplateID = in.TemplateID
 	existing.Title = in.Title
 	existing.Description = in.Description
@@ -774,6 +810,11 @@ func (s *TaskManagementService) TriggerRecurringGeneration(ctx context.Context, 
 	var createdItems []*domain.WorkItem
 
 	for _, sch := range dueSchedules {
+		// Kebijakan CASE 4: Generator tidak menciptakan pekerjaan baru menggunakan kategori nonaktif
+		if cat, err := s.categoryRepo.GetByName(ctx, sch.Category); err == nil && cat != nil && !cat.IsActive {
+			continue
+		}
+
 		// Idempotency Check 1: Jika last_generated_date persis sama dengan next_run_date, lewati
 		if sch.LastGeneratedDate != nil && *sch.LastGeneratedDate == sch.NextRunDate {
 			continue

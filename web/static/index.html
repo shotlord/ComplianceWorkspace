@@ -1083,14 +1083,15 @@
     </div>
   </div>
 
-  <!-- MODAL: Tambah Jadwal Berulang -->
+  <!-- MODAL: Tambah / Edit Jadwal Berulang -->
   <div class="modal-overlay" id="modalCreateRecurring">
     <div class="modal-card">
       <div class="modal-header">
-        <div class="modal-title">Tambah Jadwal Pekerjaan Berulang (Recurring)</div>
+        <div class="modal-title" id="modalRecurringTitle">Tambah Jadwal Pekerjaan Berulang (Recurring)</div>
         <button class="modal-close" data-close-modal="modalCreateRecurring" aria-label="Tutup">&times;</button>
       </div>
       <form id="formCreateRecurring">
+        <input type="hidden" id="recId">
         <div class="modal-body">
           <div class="form-group">
             <label class="form-label" for="recTitle">Judul Jadwal / Pekerjaan <span class="required">*</span></label>
@@ -1118,14 +1119,16 @@
           <div class="form-grid-2">
             <div class="form-group">
               <label class="form-label" for="recType">Frekuensi Perulangan <span class="required">*</span></label>
-              <select id="recType" class="form-control">
-                <option value="monthly" selected>Bulanan (Monthly)</option>
-                <option value="weekly">Mingguan (Weekly)</option>
+              <select id="recType" class="form-control" required>
                 <option value="daily">Harian (Daily)</option>
+                <option value="weekly">Mingguan (Weekly)</option>
+                <option value="monthly" selected>Bulanan (Monthly)</option>
+                <option value="quarterly">Triwulanan (Quarterly)</option>
+                <option value="yearly">Tahunan (Yearly)</option>
               </select>
             </div>
             <div class="form-group">
-              <label class="form-label" for="recInterval">Interval (Setiap N)</label>
+              <label class="form-label" for="recInterval">Interval (Setiap N) <span class="required">*</span></label>
               <input type="number" id="recInterval" class="form-control" value="1" min="1" max="365" required>
             </div>
           </div>
@@ -1155,24 +1158,32 @@
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" data-close-modal="modalCreateRecurring">Batal</button>
-          <button type="submit" class="btn btn-primary">Simpan Jadwal</button>
+          <button type="submit" id="btnSubmitRecurring" class="btn btn-primary">Simpan Jadwal</button>
         </div>
       </form>
     </div>
   </div>
 
-  <!-- MODAL: Tambah Template Pekerjaan -->
+  <!-- MODAL: Tambah / Edit Template Pekerjaan -->
   <div class="modal-overlay" id="modalCreateTemplate">
     <div class="modal-card">
       <div class="modal-header">
-        <div class="modal-title">Tambah Template Pekerjaan Baru</div>
+        <div class="modal-title" id="modalTemplateTitle">Tambah Template Pekerjaan Baru</div>
         <button class="modal-close" data-close-modal="modalCreateTemplate" aria-label="Tutup">&times;</button>
       </div>
       <form id="formCreateTemplate">
+        <input type="hidden" id="tplId">
         <div class="modal-body">
           <div class="form-group">
             <label class="form-label" for="tplName">Nama Template <span class="required">*</span></label>
-            <input type="text" id="tplName" class="form-control" placeholder="Contoh: Template Audit Internal Triwulan" required>
+            <input type="text" id="tplName" class="form-control" placeholder="Contoh: Review Kepatuhan Bulanan" required>
+            <div style="font-size: 11.5px; color: var(--text-muted); margin-top: 3px;">Identitas atau nama template untuk memudahkan pencarian.</div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="tplTitlePattern">Pola Judul Pekerjaan <span class="required">*</span></label>
+            <input type="text" id="tplTitlePattern" class="form-control" placeholder="Contoh: Review Kepatuhan - Bulan Berjalan" required>
+            <div style="font-size: 11.5px; color: var(--text-muted); margin-top: 3px;">Judul pekerjaan yang dihasilkan ketika template digunakan.</div>
           </div>
 
           <div class="form-grid-2">
@@ -1206,7 +1217,7 @@
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" data-close-modal="modalCreateTemplate">Batal</button>
-          <button type="submit" class="btn btn-primary">Simpan Template</button>
+          <button type="submit" id="btnSubmitTemplate" class="btn btn-primary">Simpan Template</button>
         </div>
       </form>
     </div>

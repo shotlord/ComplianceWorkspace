@@ -149,6 +149,32 @@ func (r *CategoryRepository) Update(ctx context.Context, cat *domain.Category) e
 	return nil
 }
 
+// UpdateTx memperbarui kategori dalam konteks transaksi yang diberikan
+func (r *CategoryRepository) UpdateTx(ctx context.Context, tx *sql.Tx, cat *domain.Category) error {
+	query := `
+		UPDATE categories SET
+			name = ?, description = ?, color = ?, is_active = ?
+		WHERE id = ?;
+	`
+	isActive := 1
+	if !cat.IsActive {
+		isActive = 0
+	}
+
+	res, err := tx.ExecContext(ctx, query, cat.Name, cat.Description, cat.Color, isActive, cat.ID)
+	if err != nil {
+		return fmt.Errorf("gagal mengupdate kategori: %w", err)
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return fmt.Errorf("kategori dengan ID %d tidak ditemukan", cat.ID)
+	}
+	return nil
+}
+
 // Delete menghapus baris kategori secara permanen dari database
 func (r *CategoryRepository) Delete(ctx context.Context, id int64) error {
 	cat, err := r.GetByID(ctx, id)

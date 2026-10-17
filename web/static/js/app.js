@@ -1034,14 +1034,9 @@ function setupModalListeners() {
   if (btnOpenNewTaskItem) {
     btnOpenNewTaskItem.addEventListener("click", () => {
       if (AppState.activeTaskTab === "recurring") {
-        populateCategorySelects();
-        populateTemplateSelects();
-        const startInput = document.getElementById("recStartDate");
-        if (startInput) startInput.value = UI.getTodayYYYYMMDD();
-        UI.openModal("modalCreateRecurring");
+        openCreateRecurringModal();
       } else if (AppState.activeTaskTab === "templates") {
-        populateCategorySelects();
-        UI.openModal("modalCreateTemplate");
+        openCreateTemplateModal();
       } else if (AppState.activeTaskTab === "categories") {
         UI.openModal("modalCreateCategory");
       }
@@ -1203,94 +1198,145 @@ function setupFormListeners() {
     });
   }
 
-  // Submit Form Tambah Jadwal Berulang
+  // Submit Form Tambah / Edit Jadwal Berulang
   const formRec = document.getElementById("formCreateRecurring");
   if (formRec) {
     formRec.addEventListener("submit", async (e) => {
       e.preventDefault();
+      const idVal = document.getElementById("recId") ? document.getElementById("recId").value : "";
+      const isEdit = !!idVal;
       const title = document.getElementById("recTitle").value.trim();
       const category = document.getElementById("recCategory").value.trim() || "General";
       const priority = document.getElementById("recPriority").value;
-      const recurrenceType = document.getElementById("recType").value;
-      const interval = parseInt(document.getElementById("recInterval").value, 10) || 1;
+      const frequency = document.getElementById("recType").value;
+      const intervalVal = parseInt(document.getElementById("recInterval").value, 10);
+      const interval = isNaN(intervalVal) || intervalVal < 1 ? 1 : intervalVal;
       const startDate = document.getElementById("recStartDate").value;
       const endDate = document.getElementById("recEndDate").value || null;
       const templateIdVal = document.getElementById("recTemplateId").value;
       const templateId = templateIdVal ? parseInt(templateIdVal, 10) : null;
       const description = document.getElementById("recDescription").value.trim();
 
-      if (!title || !startDate) {
-        UI.showToast("Judul dan Tanggal Mulai wajib diisi", "error");
+      if (!title) {
+        UI.showToast("Judul Jadwal wajib diisi", "error");
+        document.getElementById("recTitle").focus();
+        return;
+      }
+      if (!startDate) {
+        UI.showToast("Tanggal Mulai Berlaku wajib diisi", "error");
+        document.getElementById("recStartDate").focus();
+        return;
+      }
+      if (intervalVal < 1) {
+        UI.showToast("Interval N harus berupa bilangan bulat positif (minimal 1)", "error");
+        document.getElementById("recInterval").focus();
+        return;
+      }
+      if (endDate && endDate < startDate) {
+        UI.showToast("Tanggal Selesai tidak boleh mendahului Tanggal Mulai", "error");
+        document.getElementById("recEndDate").focus();
         return;
       }
 
-      const submitBtn = formRec.querySelector("button[type=submit]");
+      const submitBtn = document.getElementById("btnSubmitRecurring") || formRec.querySelector("button[type=submit]");
+      const originalText = submitBtn.textContent;
       submitBtn.disabled = true;
+      submitBtn.textContent = "Menyimpan...";
 
       try {
-        await API.createRecurringSchedule({
+        const payload = {
           title,
           category,
           priority,
-          recurrence_type: recurrenceType,
-          interval,
+          frequency,
+          interval_value: interval,
           start_date: startDate,
           end_date: endDate,
           template_id: templateId,
           description
-        });
-        UI.showToast("Jadwal berulang berhasil ditambahkan", "success");
+        };
+
+        if (isEdit) {
+          await API.updateRecurringSchedule(idVal, payload);
+          UI.showToast("Jadwal berulang berhasil diperbarui", "success");
+        } else {
+          await API.createRecurringSchedule(payload);
+          UI.showToast("Jadwal berulang berhasil ditambahkan", "success");
+        }
         UI.closeModal("modalCreateRecurring");
         formRec.reset();
+        if (document.getElementById("recId")) document.getElementById("recId").value = "";
         await loadRecurringSchedules();
       } catch (err) {
-        UI.showToast(`Gagal menambahkan jadwal: ${err.message}`, "error");
+        UI.showToast(`Gagal menyimpan jadwal: ${err.message}`, "error");
       } finally {
         submitBtn.disabled = false;
+        submitBtn.textContent = originalText;
       }
     });
   }
 
-  // Submit Form Tambah Template
+  // Submit Form Tambah / Edit Template
   const formTpl = document.getElementById("formCreateTemplate");
   if (formTpl) {
     formTpl.addEventListener("submit", async (e) => {
       e.preventDefault();
+      const idVal = document.getElementById("tplId") ? document.getElementById("tplId").value : "";
+      const isEdit = !!idVal;
       const name = document.getElementById("tplName").value.trim();
+      const titlePattern = document.getElementById("tplTitlePattern") ? document.getElementById("tplTitlePattern").value.trim() : "";
       const category = document.getElementById("tplCategory").value.trim() || "General";
-      const defaultPriority = document.getElementById("tplPriority").value;
+      const priority = document.getElementById("tplPriority").value;
       const description = document.getElementById("tplDescription").value.trim();
       const checklistRaw = document.getElementById("tplChecklist").value;
 
       if (!name) {
         UI.showToast("Nama template wajib diisi", "error");
+        document.getElementById("tplName").focus();
+        return;
+      }
+      if (!titlePattern) {
+        UI.showToast("Pola Judul Pekerjaan (title_pattern) wajib diisi", "error");
+        if (document.getElementById("tplTitlePattern")) document.getElementById("tplTitlePattern").focus();
         return;
       }
 
-      const checklist = checklistRaw
+      const checklistItems = checklistRaw
         .split("\n")
         .map(line => line.trim())
         .filter(line => line.length > 0);
 
-      const submitBtn = formTpl.querySelector("button[type=submit]");
+      const submitBtn = document.getElementById("btnSubmitTemplate") || formTpl.querySelector("button[type=submit]");
+      const originalText = submitBtn.textContent;
       submitBtn.disabled = true;
+      submitBtn.textContent = "Menyimpan...";
 
       try {
-        await API.createTemplate({
+        const payload = {
           name,
+          title_pattern: titlePattern,
           category,
-          default_priority: defaultPriority,
+          priority,
           description,
-          checklist
-        });
-        UI.showToast("Template pekerjaan berhasil ditambahkan", "success");
+          checklist_items: checklistItems
+        };
+
+        if (isEdit) {
+          await API.updateTemplate(idVal, payload);
+          UI.showToast("Template pekerjaan berhasil diperbarui", "success");
+        } else {
+          await API.createTemplate(payload);
+          UI.showToast("Template pekerjaan berhasil ditambahkan", "success");
+        }
         UI.closeModal("modalCreateTemplate");
         formTpl.reset();
+        if (document.getElementById("tplId")) document.getElementById("tplId").value = "";
         await loadTemplates();
       } catch (err) {
-        UI.showToast(`Gagal menambahkan template: ${err.message}`, "error");
+        UI.showToast(`Gagal menyimpan template: ${err.message}`, "error");
       } finally {
         submitBtn.disabled = false;
+        submitBtn.textContent = originalText;
       }
     });
   }
@@ -1784,6 +1830,93 @@ async function loadRecurringSchedules() {
   }
 }
 
+function openCreateRecurringModal() {
+  const form = document.getElementById("formCreateRecurring");
+  if (form) form.reset();
+  const idEl = document.getElementById("recId");
+  if (idEl) idEl.value = "";
+  const titleEl = document.getElementById("modalRecurringTitle");
+  if (titleEl) titleEl.textContent = "Tambah Jadwal Pekerjaan Berulang (Recurring)";
+  const submitBtn = document.getElementById("btnSubmitRecurring");
+  if (submitBtn) submitBtn.textContent = "Simpan Jadwal";
+
+  populateCategorySelects();
+  populateTemplateSelects();
+  const startInput = document.getElementById("recStartDate");
+  if (startInput) startInput.value = UI.getTodayYYYYMMDD();
+  const intervalInput = document.getElementById("recInterval");
+  if (intervalInput) intervalInput.value = "1";
+  const typeSelect = document.getElementById("recType");
+  if (typeSelect) typeSelect.value = "monthly";
+
+  UI.openModal("modalCreateRecurring");
+}
+
+function openEditRecurringModal(s) {
+  const form = document.getElementById("formCreateRecurring");
+  if (form) form.reset();
+  const idEl = document.getElementById("recId");
+  if (idEl) idEl.value = s.id;
+  const titleEl = document.getElementById("modalRecurringTitle");
+  if (titleEl) titleEl.textContent = "Edit Jadwal Pekerjaan Berulang";
+  const submitBtn = document.getElementById("btnSubmitRecurring");
+  if (submitBtn) submitBtn.textContent = "Simpan Perubahan";
+
+  populateCategorySelects(s.category, "recCategory");
+  populateTemplateSelects();
+
+  if (document.getElementById("recTitle")) document.getElementById("recTitle").value = s.title || "";
+  if (document.getElementById("recCategory")) document.getElementById("recCategory").value = s.category || "General";
+  if (document.getElementById("recPriority")) document.getElementById("recPriority").value = s.priority || "normal";
+  if (document.getElementById("recType")) document.getElementById("recType").value = s.frequency || "monthly";
+  if (document.getElementById("recInterval")) document.getElementById("recInterval").value = s.interval_value || 1;
+  if (document.getElementById("recStartDate")) document.getElementById("recStartDate").value = s.start_date || "";
+  if (document.getElementById("recEndDate")) document.getElementById("recEndDate").value = s.end_date || "";
+  if (document.getElementById("recTemplateId")) document.getElementById("recTemplateId").value = s.template_id || "";
+  if (document.getElementById("recDescription")) document.getElementById("recDescription").value = s.description || "";
+
+  UI.openModal("modalCreateRecurring");
+}
+
+function openCreateTemplateModal() {
+  const form = document.getElementById("formCreateTemplate");
+  if (form) form.reset();
+  const idEl = document.getElementById("tplId");
+  if (idEl) idEl.value = "";
+  const titleEl = document.getElementById("modalTemplateTitle");
+  if (titleEl) titleEl.textContent = "Tambah Template Pekerjaan Baru";
+  const submitBtn = document.getElementById("btnSubmitTemplate");
+  if (submitBtn) submitBtn.textContent = "Simpan Template";
+
+  populateCategorySelects();
+  UI.openModal("modalCreateTemplate");
+}
+
+function openEditTemplateModal(t) {
+  const form = document.getElementById("formCreateTemplate");
+  if (form) form.reset();
+  const idEl = document.getElementById("tplId");
+  if (idEl) idEl.value = t.id;
+  const titleEl = document.getElementById("modalTemplateTitle");
+  if (titleEl) titleEl.textContent = "Edit Template Pekerjaan";
+  const submitBtn = document.getElementById("btnSubmitTemplate");
+  if (submitBtn) submitBtn.textContent = "Simpan Perubahan";
+
+  populateCategorySelects(t.category, "tplCategory");
+
+  if (document.getElementById("tplName")) document.getElementById("tplName").value = t.name || "";
+  if (document.getElementById("tplTitlePattern")) document.getElementById("tplTitlePattern").value = t.title_pattern || "";
+  if (document.getElementById("tplCategory")) document.getElementById("tplCategory").value = t.category || "General";
+  if (document.getElementById("tplPriority")) document.getElementById("tplPriority").value = t.priority || "normal";
+  if (document.getElementById("tplDescription")) document.getElementById("tplDescription").value = t.description || "";
+  if (document.getElementById("tplChecklist")) {
+    const items = Array.isArray(t.checklist_items) ? t.checklist_items : [];
+    document.getElementById("tplChecklist").value = items.join("\n");
+  }
+
+  UI.openModal("modalCreateTemplate");
+}
+
 function renderRecurringTable(schedules) {
   const tbody = document.getElementById("recurringTableBody");
   if (!tbody) return;
@@ -1821,8 +1954,15 @@ function renderRecurringTable(schedules) {
 
     // Frekuensi
     const tdFreq = document.createElement("td");
-    const freqLabel = s.recurrence_type === "monthly" ? "Bulanan" : (s.recurrence_type === "weekly" ? "Mingguan" : "Harian");
-    tdFreq.textContent = `${freqLabel} (Setiap ${s.interval})`;
+    const freqLabels = {
+      daily: "Harian",
+      weekly: "Mingguan",
+      monthly: "Bulanan",
+      quarterly: "Triwulanan",
+      yearly: "Tahunan"
+    };
+    const freqLabel = freqLabels[s.frequency] || s.frequency || "Bulanan";
+    tdFreq.textContent = `${freqLabel} (Setiap ${s.interval_value || 1})`;
 
     // Jadwal Berikutnya
     const tdNext = document.createElement("td");
@@ -1830,16 +1970,29 @@ function renderRecurringTable(schedules) {
 
     // Terakhir Berjalan
     const tdLast = document.createElement("td");
-    tdLast.textContent = s.last_run_date ? UI.formatDateID(s.last_run_date) : "Belum pernah";
+    tdLast.textContent = s.last_generated_date ? UI.formatDateID(s.last_generated_date) : "Belum pernah";
 
-    // Status
+    // Status (Termasuk evaluasi CASE 4: Perlu Tinjauan Kategori jika kategori nonaktif)
     const tdStatus = document.createElement("td");
-    const badge = document.createElement("span");
-    badge.className = `badge ${s.is_active ? "badge-status-completed" : "badge-status-cancelled"}`;
-    const dot = document.createElement("span");
-    dot.className = "badge-dot";
-    badge.append(dot, document.createTextNode(s.is_active ? "Aktif" : "Nonaktif"));
-    tdStatus.appendChild(badge);
+    const catObj = (AppState.allCategories || []).find(c => c.name && c.name.toLowerCase() === (s.category || "").toLowerCase());
+    const isCategoryInactive = catObj && !catObj.is_active;
+
+    if (isCategoryInactive && s.is_active) {
+      const badgeReview = document.createElement("span");
+      badgeReview.className = "badge badge-status-waiting";
+      badgeReview.title = "Kategori jadwal ini sedang dinonaktifkan. Generator ditahan sampai kategori diaktifkan kembali atau diganti.";
+      const dot = document.createElement("span");
+      dot.className = "badge-dot";
+      badgeReview.append(dot, document.createTextNode("Perlu Tinjauan Kategori"));
+      tdStatus.appendChild(badgeReview);
+    } else {
+      const badge = document.createElement("span");
+      badge.className = `badge ${s.is_active ? "badge-status-completed" : "badge-status-cancelled"}`;
+      const dot = document.createElement("span");
+      dot.className = "badge-dot";
+      badge.append(dot, document.createTextNode(s.is_active ? "Aktif" : "Nonaktif"));
+      tdStatus.appendChild(badge);
+    }
 
     // Aksi
     const tdAction = document.createElement("td");
@@ -1847,6 +2000,11 @@ function renderRecurringTable(schedules) {
     const btnGroup = document.createElement("div");
     btnGroup.style.display = "flex";
     btnGroup.style.gap = "6px";
+
+    const btnEdit = document.createElement("button");
+    btnEdit.className = "btn btn-secondary btn-sm";
+    btnEdit.textContent = "Edit";
+    btnEdit.addEventListener("click", () => openEditRecurringModal(s));
 
     const btnToggle = document.createElement("button");
     btnToggle.className = "btn btn-secondary btn-sm";
@@ -1876,7 +2034,7 @@ function renderRecurringTable(schedules) {
       });
     });
 
-    btnGroup.append(btnToggle, btnDelete);
+    btnGroup.append(btnEdit, btnToggle, btnDelete);
     tdAction.appendChild(btnGroup);
 
     tr.append(tdTitle, tdCat, tdPriority, tdFreq, tdNext, tdLast, tdStatus, tdAction);
@@ -1897,10 +2055,19 @@ function renderTemplateTable(templates) {
   templates.forEach(t => {
     const tr = document.createElement("tr");
 
-    // Nama
+    // Nama & Pola Judul
     const tdName = document.createElement("td");
-    tdName.style.fontWeight = "600";
-    tdName.textContent = t.name;
+    const nameDiv = document.createElement("div");
+    nameDiv.style.fontWeight = "600";
+    nameDiv.textContent = t.name;
+    tdName.appendChild(nameDiv);
+    if (t.title_pattern) {
+      const patternDiv = document.createElement("div");
+      patternDiv.style.fontSize = "11.5px";
+      patternDiv.style.color = "var(--text-muted)";
+      patternDiv.textContent = `Pola: ${t.title_pattern}`;
+      tdName.appendChild(patternDiv);
+    }
 
     // Kategori
     const tdCat = document.createElement("td");
@@ -1908,11 +2075,11 @@ function renderTemplateTable(templates) {
 
     // Prioritas Default
     const tdPriority = document.createElement("td");
-    tdPriority.appendChild(createPriorityBadge(t.default_priority));
+    tdPriority.appendChild(createPriorityBadge(t.priority));
 
     // Jumlah Checklist
     const tdChecklist = document.createElement("td");
-    const count = Array.isArray(t.checklist) ? t.checklist.length : 0;
+    const count = Array.isArray(t.checklist_items) ? t.checklist_items.length : 0;
     tdChecklist.innerHTML = `<span class="progress-badge">${count} item subtask</span>`;
 
     // Deskripsi
@@ -1941,6 +2108,11 @@ function renderTemplateTable(templates) {
       UI.openModal("modalCreateWork");
     });
 
+    const btnEdit = document.createElement("button");
+    btnEdit.className = "btn btn-secondary btn-sm";
+    btnEdit.textContent = "Edit";
+    btnEdit.addEventListener("click", () => openEditTemplateModal(t));
+
     const btnDelete = document.createElement("button");
     btnDelete.className = "btn btn-secondary btn-sm";
     btnDelete.textContent = "Hapus";
@@ -1956,7 +2128,7 @@ function renderTemplateTable(templates) {
       });
     });
 
-    btnGroup.append(btnUse, btnDelete);
+    btnGroup.append(btnUse, btnEdit, btnDelete);
     tdAction.appendChild(btnGroup);
 
     tr.append(tdName, tdCat, tdPriority, tdChecklist, tdDesc, tdAction);

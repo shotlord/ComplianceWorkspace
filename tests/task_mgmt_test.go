@@ -1216,3 +1216,507 @@ func TestCategoryHardDeleteVsDeactivation(t *testing.T) {
 		t.Errorf("Jumlah active categories (%d) tidak boleh melebihi all categories (%d)", len(finalActive), len(finalAll))
 	}
 }
+
+// TestRecurringFrequenciesAndIntervalCalculations memvalidasi perhitungan kalkulasi tanggal
+// untuk kelima frekuensi baku: daily, weekly, monthly, quarterly, yearly beserta intervalnya.
+func TestRecurringFrequenciesAndIntervalCalculations(t *testing.T) {
+	cases := []struct {
+		name        string
+		startDate   string
+		frequency   string
+		interval    int
+		expected    string
+		expectError bool
+	}{
+		{"Daily 1 Hari", "2026-10-18", "daily", 1, "2026-10-19", false},
+		{"Daily 5 Hari", "2026-10-18", "daily", 5, "2026-10-23", false},
+		{"Weekly 1 Minggu", "2026-10-18", "weekly", 1, "2026-10-25", false},
+		{"Weekly 2 Minggu", "2026-10-18", "weekly", 2, "2026-11-01", false},
+		{"Monthly 1 Bulan", "2026-10-18", "monthly", 1, "2026-11-18", false},
+		{"Monthly 3 Bulan", "2026-10-18", "monthly", 3, "2027-01-18", false},
+		{"Quarterly 1 Triwulan", "2026-10-18", "quarterly", 1, "2027-01-18", false},
+		{"Quarterly 2 Triwulan", "2026-10-18", "quarterly", 2, "2027-04-18", false},
+		{"Yearly 1 Tahun", "2026-10-18", "yearly", 1, "2027-10-18", false},
+		{"Yearly 2 Tahun", "2026-10-18", "yearly", 2, "2028-10-18", false},
+		{"Interval <= 0 default 1", "2026-10-18", "daily", 0, "2026-10-19", false},
+		{"Invalid date", "not-a-date", "daily", 1, "", true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			res, err := service.CalculateNextRunDate(tc.startDate, tc.frequency, tc.interval)
+			if tc.expectError {
+				if err == nil {
+					t.Errorf("Seharusnya gagal untuk input tanggal tidak valid")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Perhitungan gagal: %v", err)
+			}
+			if res != tc.expected {
+				t.Errorf("Hasil tidak cocok: diharapkan %s, didapat %s", tc.expected, res)
+			}
+		})
+	}
+
+	// Validasi Domain Input Frekuensi dan Tanggal
+	validInput := domain.CreateRecurringScheduleInput{
+		Title:         "Jadwal Valid",
+		Frequency:     "daily",
+		IntervalValue: 1,
+		StartDate:     "2026-10-18",
+	}
+	if err := validInput.Validate(); err != nil {
+		t.Errorf("Input valid ditolak: %v", err)
+	}
+
+	// Uji frekuensi tidak valid
+	invalidFreqInput := domain.CreateRecurringScheduleInput{
+		Title:         "Jadwal Frekuensi Salah",
+		Frequency:     "hourly",
+		IntervalValue: 1,
+		StartDate:     "2026-10-18",
+	}
+	err := invalidFreqInput.Validate()
+	if err == nil {
+		t.Errorf("Frekuensi tidak valid 'hourly' seharusnya ditolak")
+	} else if !strings.Contains(err.Error(), "frekuensi tidak valid") {
+		t.Errorf("Pesan error tidak sesuai: %v", err)
+	}
+
+	// Uji tanggal selesai mendahului tanggal mulai
+	endBeforeStart := "2026-10-10"
+	invalidDateInput := domain.CreateRecurringScheduleInput{
+		Title:         "Jadwal Tanggal Terbalik",
+		Frequency:     "monthly",
+		IntervalValue: 1,
+		StartDate:     "2026-10-18",
+		EndDate:       &endBeforeStart,
+	}
+	err = invalidDateInput.Validate()
+	if err == nil {
+		t.Errorf("Tanggal selesai mendahului mulai seharusnya ditolak")
+	} else if !strings.Contains(err.Error(), "tidak boleh mendahului") {
+		t.Errorf("Pesan error tidak sesuai: %v", err)
+	}
+}
+
+// TestHTTPRecurringAndTemplateValidationAndCRUD menguji validasi ketat title_pattern dan frekuensi
+// serta operasi lengkap Create, Edit, Get Detail, dan Apply Template via REST API.
+func TestHTTPRecurringAndTemplateValidationAndCRUD(t *testing.T) {
+	_, baseURL, _, _, cleanup := setupTaskMgmtTestServer(t)
+	defer cleanup()
+
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar}
+
+	// Ambil token CSRF
+	respToken, err := client.Get(baseURL + "/api/csrf-token")
+	if err != nil {
+		t.Fatalf("Gagal ambil CSRF: %v", err)
+	}
+	var tokenData struct {
+		CSRFToken string `json:"csrf_token"`
+	}
+	_ = json.NewDecoder(respToken.Body).Decode(&tokenData)
+	respToken.Body.Close()
+	csrfToken := tokenData.CSRFToken
+
+	doPost := func(endpoint string, bodyJSON string) *http.Response {
+		req, _ := http.NewRequest(http.MethodPost, baseURL+endpoint, strings.NewReader(bodyJSON))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-CSRF-Token", csrfToken)
+		req.Header.Set("Origin", baseURL)
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("POST %s gagal: %v", endpoint, err)
+		}
+		return resp
+	}
+
+	doPut := func(endpoint string, bodyJSON string) *http.Response {
+		req, _ := http.NewRequest(http.MethodPut, baseURL+endpoint, strings.NewReader(bodyJSON))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-CSRF-Token", csrfToken)
+		req.Header.Set("Origin", baseURL)
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("PUT %s gagal: %v", endpoint, err)
+		}
+		return resp
+	}
+
+	// 1. Template: Validasi title_pattern wajib diisi (BUG-TPL-001)
+	respMissingPattern := doPost("/api/templates", `{"name":"Template Tanpa Pattern","category":"General","priority":"normal"}`)
+	if respMissingPattern.StatusCode != http.StatusBadRequest {
+		t.Errorf("Seharusnya 400 Bad Request jika title_pattern kosong, didapat: %d", respMissingPattern.StatusCode)
+	}
+	bodyMissingPattern, _ := io.ReadAll(respMissingPattern.Body)
+	respMissingPattern.Body.Close()
+	if !strings.Contains(string(bodyMissingPattern), "title_pattern") {
+		t.Errorf("Pesan error tidak menyebutkan title_pattern: %s", string(bodyMissingPattern))
+	}
+
+	// Template: Validasi title_pattern hanya whitespace
+	respWhitespacePattern := doPost("/api/templates", `{"name":"Template Whitespace","title_pattern":"   ","category":"General","priority":"normal"}`)
+	if respWhitespacePattern.StatusCode != http.StatusBadRequest {
+		t.Errorf("Seharusnya 400 Bad Request jika title_pattern hanya spasi, didapat: %d", respWhitespacePattern.StatusCode)
+	}
+	respWhitespacePattern.Body.Close()
+
+	// 2. Template: Create sukses dengan title_pattern yang valid
+	validTplJSON := `{
+		"name": "Template Audit Triwulan",
+		"title_pattern": "Audit Kepatuhan Triwulan - {periode}",
+		"category": "General",
+		"priority": "high",
+		"description": "Template audit berkala",
+		"checklist_items": ["Verifikasi Dokumen", "Uji Petik Transaksi", "Laporan Hasil"]
+	}`
+	respCreateTpl := doPost("/api/templates", validTplJSON)
+	if respCreateTpl.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(respCreateTpl.Body)
+		t.Fatalf("POST /api/templates gagal: status=%d, body=%s", respCreateTpl.StatusCode, string(body))
+	}
+	var createdTpl domain.WorkTemplate
+	_ = json.NewDecoder(respCreateTpl.Body).Decode(&createdTpl)
+	respCreateTpl.Body.Close()
+
+	if createdTpl.TitlePattern != "Audit Kepatuhan Triwulan - {periode}" {
+		t.Errorf("TitlePattern tidak tersimpan: %s", createdTpl.TitlePattern)
+	}
+	if len(createdTpl.ChecklistItems) != 3 {
+		t.Errorf("Checklist items tidak sesuai: %d", len(createdTpl.ChecklistItems))
+	}
+
+	// 3. Template: Get Detail
+	respGetTpl, err := client.Get(fmt.Sprintf("%s/api/templates/%d", baseURL, createdTpl.ID))
+	if err != nil || respGetTpl.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/templates/:id gagal: status=%d, err=%v", respGetTpl.StatusCode, err)
+	}
+	var fetchedTpl domain.WorkTemplate
+	_ = json.NewDecoder(respGetTpl.Body).Decode(&fetchedTpl)
+	respGetTpl.Body.Close()
+	if fetchedTpl.Name != "Template Audit Triwulan" || fetchedTpl.TitlePattern != "Audit Kepatuhan Triwulan - {periode}" {
+		t.Errorf("Data detail template tidak sesuai: %+v", fetchedTpl)
+	}
+
+	// 4. Template: Edit via PUT
+	updateTplJSON := `{
+		"name": "Template Audit Triwulan Diperbarui",
+		"title_pattern": "Audit Triwulan Final - {periode}",
+		"category": "General",
+		"priority": "critical",
+		"description": "Deskripsi diperbarui",
+		"checklist_items": ["Langkah 1", "Langkah 2"]
+	}`
+	respUpdateTpl := doPut(fmt.Sprintf("/api/templates/%d", createdTpl.ID), updateTplJSON)
+	if respUpdateTpl.StatusCode != http.StatusOK {
+		t.Fatalf("PUT /api/templates/:id gagal: status=%d", respUpdateTpl.StatusCode)
+	}
+	var updatedTpl domain.WorkTemplate
+	_ = json.NewDecoder(respUpdateTpl.Body).Decode(&updatedTpl)
+	respUpdateTpl.Body.Close()
+	if updatedTpl.Name != "Template Audit Triwulan Diperbarui" || len(updatedTpl.ChecklistItems) != 2 {
+		t.Errorf("Hasil update template tidak sesuai: %+v", updatedTpl)
+	}
+
+	// 5. Template: Apply Template menghasilkan pekerjaan dan subtask secara atomik
+	respApply := doPost(fmt.Sprintf("/api/templates/%d/apply", createdTpl.ID), `{"received_on":"2026-10-18"}`)
+	if respApply.StatusCode != http.StatusCreated {
+		t.Fatalf("Apply template gagal: status=%d", respApply.StatusCode)
+	}
+	var appliedWI domain.WorkItem
+	_ = json.NewDecoder(respApply.Body).Decode(&appliedWI)
+	respApply.Body.Close()
+	if appliedWI.Title != "Audit Triwulan Final - {periode}" {
+		t.Errorf("Judul pekerjaan yang dihasilkan tidak sesuai dengan title_pattern: %s", appliedWI.Title)
+	}
+
+	// 6. Recurring: Validasi frekuensi (BUG-REC-001)
+	respInvalidFreq := doPost("/api/recurring-schedules", `{"title":"Jadwal Frekuensi Kosong","category":"General","priority":"normal","frequency":"","interval_value":1,"start_date":"2026-10-18"}`)
+	if respInvalidFreq.StatusCode != http.StatusBadRequest {
+		t.Errorf("Seharusnya 400 Bad Request jika frekuensi kosong, didapat: %d", respInvalidFreq.StatusCode)
+	}
+	bodyInvalidFreq, _ := io.ReadAll(respInvalidFreq.Body)
+	respInvalidFreq.Body.Close()
+	if !strings.Contains(string(bodyInvalidFreq), "frekuensi tidak valid") {
+		t.Errorf("Pesan error frekuensi tidak valid salah: %s", string(bodyInvalidFreq))
+	}
+
+	// 7. Recurring: Create sukses dengan kelima frekuensi
+	freqs := []string{"daily", "weekly", "monthly", "quarterly", "yearly"}
+	for _, f := range freqs {
+		recPayload := fmt.Sprintf(`{"title":"Jadwal %s","category":"General","priority":"normal","frequency":"%s","interval_value":1,"start_date":"2026-10-18"}`, f, f)
+		respRec := doPost("/api/recurring-schedules", recPayload)
+		if respRec.StatusCode != http.StatusCreated {
+			body, _ := io.ReadAll(respRec.Body)
+			t.Fatalf("Gagal membuat jadwal frekuensi %s: status=%d, body=%s", f, respRec.StatusCode, string(body))
+		}
+		var createdSch domain.RecurringSchedule
+		_ = json.NewDecoder(respRec.Body).Decode(&createdSch)
+		respRec.Body.Close()
+		if createdSch.Frequency != f {
+			t.Errorf("Frekuensi tidak sesuai: diharapkan %s, didapat %s", f, createdSch.Frequency)
+		}
+
+		// 8. Recurring: Update via PUT
+		updatePayload := fmt.Sprintf(`{"title":"Jadwal %s Diperbarui","category":"General","priority":"high","frequency":"%s","interval_value":2,"start_date":"2026-10-18"}`, f, f)
+		respUpdRec := doPut(fmt.Sprintf("/api/recurring-schedules/%d", createdSch.ID), updatePayload)
+		if respUpdRec.StatusCode != http.StatusOK {
+			t.Fatalf("PUT /api/recurring-schedules/:id gagal untuk frekuensi %s: status=%d", f, respUpdRec.StatusCode)
+		}
+		respUpdRec.Body.Close()
+
+		// 9. Recurring: Toggle is_active via partial update
+		togglePayload := `{"is_active":false}`
+		respToggle := doPut(fmt.Sprintf("/api/recurring-schedules/%d", createdSch.ID), togglePayload)
+		if respToggle.StatusCode != http.StatusOK {
+			t.Fatalf("PUT partial toggle is_active gagal: status=%d", respToggle.StatusCode)
+		}
+		var toggledSch domain.RecurringSchedule
+		_ = json.NewDecoder(respToggle.Body).Decode(&toggledSch)
+		respToggle.Body.Close()
+		if toggledSch.IsActive {
+			t.Errorf("Jadwal seharusnya nonaktif setelah toggle")
+		}
+	}
+
+	// 10. Recurring: Jadwal masa depan tidak menghasilkan pekerjaan sebelum tanggal mulai (Requirement A.5)
+	futureDate := time.Now().AddDate(0, 1, 0).Format("2006-01-02")
+	futureSchPayload := fmt.Sprintf(`{"title":"Jadwal Masa Depan","category":"General","priority":"normal","frequency":"daily","interval_value":1,"start_date":"%s"}`, futureDate)
+	respFuture := doPost("/api/recurring-schedules", futureSchPayload)
+	if respFuture.StatusCode != http.StatusCreated {
+		t.Fatalf("Gagal membuat jadwal masa depan: status=%d", respFuture.StatusCode)
+	}
+	respFuture.Body.Close()
+
+	// Trigger dengan tanggal hari ini
+	todayStr := time.Now().UTC().Format("2006-01-02")
+	respTrig := doPost("/api/recurring-schedules/trigger", fmt.Sprintf(`{"as_of_date":"%s"}`, todayStr))
+	if respTrig.StatusCode != http.StatusOK {
+		t.Fatalf("Trigger gagal: status=%d", respTrig.StatusCode)
+	}
+	respTrig.Body.Close()
+}
+
+// TestCategoryMultiModuleRegressionCases memverifikasi secara ketat perlindungan integrasi kategori (CASE 1 s/d CASE 7)
+func TestCategoryMultiModuleRegressionCases(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "test_cat_cross_module.db")
+
+	db, err := database.OpenDB(dbPath)
+	if err != nil {
+		t.Fatalf("Gagal membuka DB: %v", err)
+	}
+	defer db.Close()
+
+	ctx := context.Background()
+	if err := database.Migrate(ctx, db); err != nil {
+		t.Fatalf("Gagal migrasi DB: %v", err)
+	}
+
+	workRepo := repository.NewWorkItemRepository(db)
+	actRepo := repository.NewActivityLogRepository(db)
+	subRepo := repository.NewSubtaskRepository(db)
+	catRepo := repository.NewCategoryRepository(db)
+	tplRepo := repository.NewWorkTemplateRepository(db)
+	recRepo := repository.NewRecurringRepository(db)
+
+	taskSvc := service.NewTaskManagementService(db, workRepo, actRepo, subRepo, catRepo, tplRepo, recRepo)
+	workSvc := service.NewWorkItemService(db, workRepo, actRepo)
+
+	// CASE 1: Kategori baru -> Template -> Kategori tidak bisa dihapus selama template ada
+	catTpl, err := taskSvc.CreateCategory(ctx, domain.CreateCategoryInput{Name: "Cat-Tpl"})
+	if err != nil {
+		t.Fatalf("CASE 1 gagal buat kategori: %v", err)
+	}
+	tpl1, err := taskSvc.CreateTemplate(ctx, domain.CreateWorkTemplateInput{
+		Name:         "Template Case 1",
+		TitlePattern: "Pola Judul Case 1",
+		Category:     "Cat-Tpl",
+		Priority:     "normal",
+	})
+	if err != nil {
+		t.Fatalf("CASE 1 gagal buat template: %v", err)
+	}
+	if err := taskSvc.DeleteCategory(ctx, catTpl.ID); err == nil {
+		t.Fatalf("CASE 1: Kategori yang digunakan template seharusnya tidak dapat dihapus")
+	} else if !strings.Contains(err.Error(), "1 template") {
+		t.Errorf("CASE 1 pesan error tidak sesuai: %v", err)
+	}
+
+	// CASE 2: Kategori baru -> Recurring Schedule -> Kategori tidak bisa dihapus selama jadwal ada
+	catRec, err := taskSvc.CreateCategory(ctx, domain.CreateCategoryInput{Name: "Cat-Rec"})
+	if err != nil {
+		t.Fatalf("CASE 2 gagal buat kategori: %v", err)
+	}
+	sch2, err := taskSvc.CreateRecurringSchedule(ctx, domain.CreateRecurringScheduleInput{
+		Title:         "Jadwal Case 2",
+		Category:      "Cat-Rec",
+		Priority:      "normal",
+		Frequency:     "daily",
+		IntervalValue: 1,
+		StartDate:     "2026-10-18",
+	})
+	if err != nil {
+		t.Fatalf("CASE 2 gagal buat jadwal: %v", err)
+	}
+	if err := taskSvc.DeleteCategory(ctx, catRec.ID); err == nil {
+		t.Fatalf("CASE 2: Kategori yang digunakan jadwal berulang seharusnya tidak dapat dihapus")
+	} else if !strings.Contains(err.Error(), "1 jadwal berulang") {
+		t.Errorf("CASE 2 pesan error tidak sesuai: %v", err)
+	}
+
+	// CASE 3: Nonaktifkan kategori yang digunakan oleh Template -> Template tetap tersimpan; kategori tidak ada di list active
+	falseVal := false
+	_, err = taskSvc.UpdateCategory(ctx, catTpl.ID, domain.UpdateCategoryInput{
+		Name:     catTpl.Name,
+		IsActive: &falseVal,
+	})
+	if err != nil {
+		t.Fatalf("CASE 3 gagal menonaktifkan kategori: %v", err)
+	}
+	// Pastikan template existing tetap tersimpan utuh
+	savedTpl, err := taskSvc.GetTemplate(ctx, tpl1.ID)
+	if err != nil || savedTpl == nil {
+		t.Fatalf("CASE 3: Template hilang setelah kategori dinonaktifkan: %v", err)
+	}
+	// List active tidak boleh memuat Cat-Tpl
+	activeCats, err := taskSvc.ListCategories(ctx, true)
+	if err != nil {
+		t.Fatalf("CASE 3 list active gagal: %v", err)
+	}
+	for _, c := range activeCats {
+		if c.Name == "Cat-Tpl" {
+			t.Errorf("CASE 3: Kategori nonaktif tidak boleh muncul di list kategori aktif")
+		}
+	}
+
+	// CASE 4: Nonaktifkan kategori yang digunakan oleh Recurring Schedule
+	// Kebijakan: generator tidak menciptakan pekerjaan baru menggunakan kategori nonaktif
+	_, err = taskSvc.UpdateCategory(ctx, catRec.ID, domain.UpdateCategoryInput{
+		Name:     catRec.Name,
+		IsActive: &falseVal,
+	})
+	if err != nil {
+		t.Fatalf("CASE 4 gagal menonaktifkan kategori jadwal: %v", err)
+	}
+	// Pastikan jadwal existing tetap ada
+	savedSch, err := taskSvc.GetRecurringSchedule(ctx, sch2.ID)
+	if err != nil || savedSch == nil {
+		t.Fatalf("CASE 4: Jadwal berulang hilang setelah kategori dinonaktifkan: %v", err)
+	}
+	// Jalankan trigger recurring generation -> tidak boleh menghasilkan pekerjaan baru untuk jadwal ini
+	genItems, err := taskSvc.TriggerRecurringGeneration(ctx, "2026-10-18")
+	if err != nil {
+		t.Fatalf("CASE 4 trigger gagal: %v", err)
+	}
+	if len(genItems) != 0 {
+		t.Errorf("CASE 4: Generator seharusnya tidak membuat pekerjaan untuk kategori nonaktif, didapat: %d", len(genItems))
+	}
+
+	// CASE 5: Aktifkan kembali kategori dan pastikan hubungan Template maupun Recurring Schedule tetap valid
+	trueVal := true
+	_, err = taskSvc.UpdateCategory(ctx, catTpl.ID, domain.UpdateCategoryInput{Name: catTpl.Name, IsActive: &trueVal})
+	if err != nil {
+		t.Fatalf("CASE 5 gagal aktifkan Cat-Tpl: %v", err)
+	}
+	_, err = taskSvc.UpdateCategory(ctx, catRec.ID, domain.UpdateCategoryInput{Name: catRec.Name, IsActive: &trueVal})
+	if err != nil {
+		t.Fatalf("CASE 5 gagal aktifkan Cat-Rec: %v", err)
+	}
+	// Setelah kategori diaktifkan kembali, generator berhasil memproses jadwal
+	genItemsReactivated, err := taskSvc.TriggerRecurringGeneration(ctx, "2026-10-18")
+	if err != nil {
+		t.Fatalf("CASE 5 trigger gagal: %v", err)
+	}
+	if len(genItemsReactivated) != 1 {
+		t.Errorf("CASE 5: Generator seharusnya membuat 1 pekerjaan setelah kategori diaktifkan kembali, didapat: %d", len(genItemsReactivated))
+	}
+
+	// CASE 6: Nama kategori diperbarui -> seluruh referensi (work_items, templates, recurring) tersinkronisasi transaksional; activity_logs tidak berubah
+	catRename, err := taskSvc.CreateCategory(ctx, domain.CreateCategoryInput{Name: "Cat-OldName"})
+	if err != nil {
+		t.Fatalf("CASE 6 buat kategori gagal: %v", err)
+	}
+	wi6, err := workSvc.CreateWorkItem(ctx, domain.CreateWorkItemInput{
+		Title:      "Pekerjaan Case 6",
+		Category:   "Cat-OldName",
+		ReceivedOn: "2026-10-18",
+		Priority:   "normal",
+	})
+	if err != nil {
+		t.Fatalf("CASE 6 buat work item gagal: %v", err)
+	}
+	tpl6, err := taskSvc.CreateTemplate(ctx, domain.CreateWorkTemplateInput{
+		Name:         "Template Case 6",
+		TitlePattern: "Pola Case 6",
+		Category:     "Cat-OldName",
+		Priority:     "normal",
+	})
+	if err != nil {
+		t.Fatalf("CASE 6 buat template gagal: %v", err)
+	}
+	sch6, err := taskSvc.CreateRecurringSchedule(ctx, domain.CreateRecurringScheduleInput{
+		Title:         "Jadwal Case 6",
+		Category:      "Cat-OldName",
+		Priority:      "normal",
+		Frequency:     "daily",
+		IntervalValue: 1,
+		StartDate:     "2026-10-18",
+	})
+	if err != nil {
+		t.Fatalf("CASE 6 buat jadwal gagal: %v", err)
+	}
+
+	// Hitung log aktivitas sebelum rename
+	var logsBefore int
+	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM activity_logs WHERE work_item_id = ?", wi6.ID).Scan(&logsBefore)
+
+	// Lakukan rename kategori
+	_, err = taskSvc.UpdateCategory(ctx, catRename.ID, domain.UpdateCategoryInput{
+		Name: "Cat-NewName",
+	})
+	if err != nil {
+		t.Fatalf("CASE 6 rename kategori gagal: %v", err)
+	}
+
+	// Verifikasi work item tersinkronisasi
+	updWI, _ := workRepo.GetByID(ctx, wi6.ID)
+	if updWI.Category != "Cat-NewName" {
+		t.Errorf("CASE 6: Kategori work item tidak tersinkronisasi: %s", updWI.Category)
+	}
+	// Verifikasi template tersinkronisasi
+	updTpl, _ := tplRepo.GetByID(ctx, tpl6.ID)
+	if updTpl.Category != "Cat-NewName" {
+		t.Errorf("CASE 6: Kategori template tidak tersinkronisasi: %s", updTpl.Category)
+	}
+	// Verifikasi jadwal berulang tersinkronisasi
+	updSch, _ := recRepo.GetByID(ctx, sch6.ID)
+	if updSch.Category != "Cat-NewName" {
+		t.Errorf("CASE 6: Kategori jadwal tidak tersinkronisasi: %s", updSch.Category)
+	}
+
+	// Verifikasi histori log aktivitas tidak berubah (audit trail immutable)
+	var logsAfter int
+	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM activity_logs WHERE work_item_id = ?", wi6.ID).Scan(&logsAfter)
+	if logsBefore != logsAfter {
+		t.Errorf("CASE 6: Log aktivitas seharusnya tidak berubah: sebelum=%d, sesudah=%d", logsBefore, logsAfter)
+	}
+
+	// CASE 7: Hapus kategori kustom yang tidak digunakan -> hard delete berhasil
+	catUnused, err := taskSvc.CreateCategory(ctx, domain.CreateCategoryInput{Name: "Cat-Unused"})
+	if err != nil {
+		t.Fatalf("CASE 7 buat kategori gagal: %v", err)
+	}
+	if err := taskSvc.DeleteCategory(ctx, catUnused.ID); err != nil {
+		t.Fatalf("CASE 7: Gagal hard delete kategori tidak terpakai: %v", err)
+	}
+	var countUnused int
+	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM categories WHERE id = ?", catUnused.ID).Scan(&countUnused)
+	if countUnused != 0 {
+		t.Errorf("CASE 7: Kategori tidak terpakai harusnya terhapus secara fisik dari DB, didapat count=%d", countUnused)
+	}
+}
