@@ -1,0 +1,681 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Compliance Workspace v1.0</title>
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Sidebar Navigasi -->
+    <aside class="app-sidebar" aria-label="Navigasi Utama">
+      <div class="sidebar-header">
+        <span class="brand-badge">v1.0 OFFLINE</span>
+        <div class="brand-title">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          </svg>
+          Compliance
+        </div>
+        <div class="brand-subtitle">Workspace Kepatuhan Pribadi</div>
+      </div>
+
+      <nav class="sidebar-nav">
+        <button class="nav-item active" data-nav-view="dashboard">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="7" height="9"/>
+            <rect x="14" y="3" width="7" height="5"/>
+            <rect x="14" y="12" width="7" height="9"/>
+            <rect x="3" y="16" width="7" height="5"/>
+          </svg>
+          <span class="nav-text">Dashboard</span>
+        </button>
+
+        <button class="nav-item" data-nav-view="work_register">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+            <line x1="16" y1="13" x2="8" y2="13"/>
+            <line x1="16" y1="17" x2="8" y2="17"/>
+            <polyline points="10 9 9 9 8 9"/>
+          </svg>
+          <span class="nav-text">Work Register</span>
+        </button>
+
+        <button class="nav-item" data-nav-view="activity_log">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/>
+            <polyline points="12 6 12 12 16 14"/>
+          </svg>
+          <span class="nav-text">Activity Log</span>
+        </button>
+
+        <button class="nav-item" data-nav-view="deadline_tracker">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+            <line x1="16" y1="2" x2="16" y2="6"/>
+            <line x1="8" y1="2" x2="8" y2="6"/>
+            <line x1="3" y1="10" x2="21" y2="10"/>
+          </svg>
+          <span class="nav-text">Deadline Tracker</span>
+        </button>
+
+        <button class="nav-item" data-nav-view="settings_backup">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+          <span class="nav-text">Pengaturan & Backup</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="footer-status">
+          <span class="status-dot"></span>
+          <span>127.0.0.1 (Lokal Aman)</span>
+        </div>
+        <div>Penyimpanan: SQLite data/</div>
+      </div>
+    </aside>
+
+    <!-- Konten Utama -->
+    <main class="app-main">
+      <header class="app-header">
+        <div class="header-title-wrap">
+          <h1 id="pageTitle">Dashboard Kepatuhan</h1>
+          <div class="header-meta" id="headerLiveClock">Memuat waktu...</div>
+        </div>
+        <div class="header-actions">
+          <button id="btnRefreshData" class="btn btn-secondary btn-sm" title="Segarkan Data dari Server">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M23 4v6h-6"/>
+              <path d="M1 20v-6h6"/>
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+            </svg>
+            Segarkan
+          </button>
+          <button id="btnOpenCreateModal" class="btn btn-primary btn-sm">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="12" y1="5" x2="12" y2="19"/>
+              <line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+            Tambah Pekerjaan
+          </button>
+        </div>
+      </header>
+
+      <div class="content-body">
+        <!-- 1. VIEW: DASHBOARD -->
+        <section id="view-dashboard" class="view-section active">
+          <!-- Metrik Ringkasan -->
+          <div class="metrics-grid">
+            <div class="metric-card primary">
+              <div class="metric-label">Total Pekerjaan</div>
+              <div class="metric-value" id="metricTotal">0</div>
+              <div class="metric-subtext">Semua tugas terdaftar</div>
+            </div>
+            <div class="metric-card info">
+              <div class="metric-label">Pekerjaan Aktif</div>
+              <div class="metric-value" id="metricActive">0</div>
+              <div class="metric-subtext">Belum mulai & berjalan</div>
+            </div>
+            <div class="metric-card success">
+              <div class="metric-label">Selesai</div>
+              <div class="metric-value" id="metricCompleted">0</div>
+              <div class="metric-subtext">Tugas telah dituntaskan</div>
+            </div>
+            <div class="metric-card warning">
+              <div class="metric-label">Mendekati Tenggat</div>
+              <div class="metric-value" id="metricDueSoon">0</div>
+              <div class="metric-subtext">Jatuh tempo dlm 7 hari</div>
+            </div>
+            <div class="metric-card danger">
+              <div class="metric-label">Melewati Tenggat</div>
+              <div class="metric-value" id="metricOverdue">0</div>
+              <div class="metric-subtext">Terlambat (Overdue)</div>
+            </div>
+          </div>
+
+          <!-- Tabel Pekerjaan Mendesak -->
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                  <line x1="12" y1="9" x2="12" y2="13"/>
+                  <line x1="12" y1="17" x2="12.01" y2="17"/>
+                </svg>
+                Pekerjaan Mendesak & Mendekati Tenggat
+              </div>
+            </div>
+            <div class="card-body" style="padding: 0;">
+              <div class="table-responsive" style="border: none;">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>Kode</th>
+                      <th>Judul Pekerjaan</th>
+                      <th>Prioritas</th>
+                      <th>Status</th>
+                      <th>Tenggat</th>
+                      <th>Aksi</th>
+                    </tr>
+                  </thead>
+                  <tbody id="dashboardUrgentTableBody">
+                    <tr><td colspan="6" class="empty-state">Memuat data...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 2. VIEW: WORK REGISTER -->
+        <section id="view-work_register" class="view-section">
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">Daftar Register Pekerjaan Kepatuhan</div>
+            </div>
+            <div class="card-body">
+              <!-- Toolbar Filter -->
+              <div class="toolbar-wrap">
+                <div class="toolbar-filters">
+                  <div class="search-input-wrap">
+                    <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <circle cx="11" cy="11" r="8"/>
+                      <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                    </svg>
+                    <input type="text" id="filterSearch" class="search-input" placeholder="Cari kode, judul, penugasan...">
+                  </div>
+
+                  <select id="filterStatus" class="filter-select">
+                    <option value="">Semua Status</option>
+                    <option value="not_started">Belum Mulai</option>
+                    <option value="in_progress">Dalam Proses</option>
+                    <option value="waiting">Menunggu</option>
+                    <option value="completed">Selesai</option>
+                    <option value="cancelled">Dibatalkan</option>
+                  </select>
+
+                  <select id="filterPriority" class="filter-select">
+                    <option value="">Semua Prioritas</option>
+                    <option value="critical">Kritis</option>
+                    <option value="high">Tinggi</option>
+                    <option value="normal">Normal</option>
+                    <option value="low">Rendah</option>
+                  </select>
+
+                  <select id="filterCategory" class="filter-select">
+                    <option value="">Semua Kategori</option>
+                  </select>
+
+                  <select id="filterSort" class="filter-select">
+                    <option value="received_on_desc">Terbaru Diterima</option>
+                    <option value="due_on_asc">Tenggat Terdekat</option>
+                    <option value="priority">Prioritas Tertinggi</option>
+                  </select>
+
+                  <label class="filter-checkbox-label">
+                    <input type="checkbox" id="filterIncludeArchived">
+                    <span>Tampilkan Arsip</span>
+                  </label>
+                </div>
+              </div>
+
+              <!-- Tabel Work Register -->
+              <div class="table-responsive">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>Kode</th>
+                      <th>Judul & Kategori</th>
+                      <th>Pemberi Tugas</th>
+                      <th>Diterima</th>
+                      <th>Tenggat</th>
+                      <th>Prioritas</th>
+                      <th>Status</th>
+                      <th>Aksi</th>
+                    </tr>
+                  </thead>
+                  <tbody id="workRegisterTableBody">
+                    <tr><td colspan="8" class="empty-state">Memuat data pekerjaan...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 3. VIEW: ACTIVITY LOG -->
+        <section id="view-activity_log" class="view-section">
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">Riwayat & Catatan Aktivitas Pekerjaan</div>
+            </div>
+            <div class="card-body">
+              <div class="notice-box">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;">
+                  <circle cx="12" cy="12" r="10"/>
+                  <line x1="12" y1="16" x2="12" y2="12"/>
+                  <line x1="12" y1="8" x2="12.01" y2="8"/>
+                </svg>
+                <div>
+                  <strong>Integritas Audit Lokal:</strong> Catatan aktivitas bersifat <em>append-only</em>. Setiap perubahan status, penyuntingan data, dan catatan progres disimpan secara kronologis dan tidak dapat dihapus maupun diubah kembali.
+                </div>
+              </div>
+
+              <div class="form-group" style="max-width: 480px; margin-bottom: 24px;">
+                <label for="activityWorkSelect" class="form-label">Pilih Pekerjaan Kepatuhan:</label>
+                <select id="activityWorkSelect" class="form-control">
+                  <option value="">-- Pilih Pekerjaan Kepatuhan --</option>
+                </select>
+              </div>
+
+              <div id="activityViewTimeline">
+                <div class="empty-state">Silakan pilih pekerjaan di atas untuk meninjau seluruh riwayat perubahannya.</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 4. VIEW: DEADLINE TRACKER -->
+        <section id="view-deadline_tracker" class="view-section">
+          <div class="card" style="margin-bottom: 16px;">
+            <div class="card-header">
+              <div class="card-title">Pemantauan Tenggat Waktu (Deadline Tracker)</div>
+            </div>
+            <div class="card-body">
+              <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">
+                Memantau pekerjaan aktif yang belum selesai/dibatalkan berdasarkan batas waktu penyelesaian.
+              </p>
+              
+              <div class="deadline-columns">
+                <!-- Kolom Overdue -->
+                <div class="deadline-col">
+                  <div class="deadline-col-header overdue">
+                    <span>Melewati Tenggat (Overdue)</span>
+                    <span id="countOverdue">0</span>
+                  </div>
+                  <div class="deadline-col-body" id="colOverdueItems"></div>
+                </div>
+
+                <!-- Kolom Hari Ini -->
+                <div class="deadline-col">
+                  <div class="deadline-col-header today">
+                    <span>Jatuh Tempo Hari Ini</span>
+                    <span id="countToday">0</span>
+                  </div>
+                  <div class="deadline-col-body" id="colTodayItems"></div>
+                </div>
+
+                <!-- Kolom 7 Hari Mendatang -->
+                <div class="deadline-col">
+                  <div class="deadline-col-header upcoming">
+                    <span>Tujuh Hari Mendatang</span>
+                    <span id="countUpcoming">0</span>
+                  </div>
+                  <div class="deadline-col-body" id="colUpcomingItems"></div>
+                </div>
+
+                <!-- Kolom Tanpa Tenggat -->
+                <div class="deadline-col">
+                  <div class="deadline-col-header none">
+                    <span>Tanpa Batas Waktu</span>
+                    <span id="countNone">0</span>
+                  </div>
+                  <div class="deadline-col-body" id="colNoneItems"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 5. VIEW: SETTINGS & BACKUP -->
+        <section id="view-settings_backup" class="view-section">
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">Informasi Sistem & Lingkungan Kerja</div>
+            </div>
+            <div class="card-body">
+              <table class="data-table" style="max-width: 600px; margin-bottom: 24px;">
+                <tbody>
+                  <tr>
+                    <td style="font-weight: 600; width: 200px;">Versi Aplikasi</td>
+                    <td>v1.0 (Local-First Offline)</td>
+                  </tr>
+                  <tr>
+                    <td style="font-weight: 600;">Status Jaringan</td>
+                    <td><span class="badge badge-status-completed"><span class="badge-dot"></span>127.0.0.1 (Hanya Localhost)</span></td>
+                  </tr>
+                  <tr>
+                    <td style="font-weight: 600;">Penyimpanan Basis Data</td>
+                    <td>SQLite Murni (<code>data/compliance.db</code>)</td>
+                  </tr>
+                  <tr>
+                    <td style="font-weight: 600;">Driver Database</td>
+                    <td><code>modernc.org/sqlite</code> (Tanpa dependensi CGO)</td>
+                  </tr>
+                  <tr>
+                    <td style="font-weight: 600;">Zona Waktu Tampilan</td>
+                    <td>Asia/Jakarta (WIB)</td>
+                  </tr>
+                  <tr>
+                    <td style="font-weight: 600;">Dependensi Internet</td>
+                    <td>Nol (0%) — Beroperasi tanpa koneksi luar</td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <!-- Bagian Ekspor CSV -->
+              <div class="card" style="margin-bottom: 24px;">
+                <div class="card-header">
+                  <div class="card-title">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                      <polyline points="7 10 12 15 17 10"/>
+                      <line x1="12" y1="15" x2="12" y2="3"/>
+                    </svg>
+                    Ekspor Data Laporan (CSV)
+                  </div>
+                </div>
+                <div class="card-body">
+                  <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 14px;">
+                    Unduh data pekerjaan dan riwayat aktivitas dalam format CSV standar ber-BOM UTF-8 (kompatibel penuh dengan Microsoft Excel) serta dilindungi dari risiko formula injection.
+                  </p>
+                  <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+                    <a href="/api/export/work-items" class="btn btn-secondary" download>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                        <polyline points="14 2 14 8 20 8"/>
+                      </svg>
+                      Ekspor Work Register (CSV)
+                    </a>
+                    <a href="/api/export/activity-logs" class="btn btn-secondary" download>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"/>
+                        <polyline points="12 6 12 12 16 14"/>
+                      </svg>
+                      Ekspor Activity Log (CSV)
+                    </a>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Bagian Backup & Restore Database -->
+              <div class="card">
+                <div class="card-header">
+                  <div class="card-title">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                    </svg>
+                    Cadangan & Pemulihan Basis Data (Backup & Restore)
+                  </div>
+                  <button id="btnCreateBackup" class="btn btn-primary btn-sm">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <line x1="12" y1="5" x2="12" y2="19"/>
+                      <line x1="5" y1="12" x2="19" y2="12"/>
+                    </svg>
+                    Buat Backup Sekarang
+                  </button>
+                </div>
+                <div class="card-body">
+                  <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">
+                    Snapshot database dibuat secara atomik menggunakan perintah SQLite <code>VACUUM INTO</code> ke folder <code>backups/</code> dan diverifikasi integritasnya sebelum dicatat.
+                  </p>
+                  <div class="table-responsive">
+                    <table class="data-table">
+                      <thead>
+                        <tr>
+                          <th>Nama File Cadangan</th>
+                          <th>Tanggal Pembuatan</th>
+                          <th>Ukuran File</th>
+                          <th>Integritas</th>
+                          <th>Tindakan</th>
+                        </tr>
+                      </thead>
+                      <tbody id="backupListTableBody">
+                        <tr><td colspan="5" class="empty-state">Memuat daftar cadangan...</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <!-- MODAL: Tambah Pekerjaan -->
+  <div class="modal-overlay" id="modalCreateWork">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-title">Tambah Pekerjaan Kepatuhan Baru</div>
+        <button class="modal-close" data-close-modal="modalCreateWork" aria-label="Tutup">&times;</button>
+      </div>
+      <form id="formCreateWork">
+        <div class="modal-body">
+          <div class="form-group">
+            <label class="form-label" for="createTitle">Judul Pekerjaan <span class="required">*</span></label>
+            <input type="text" id="createTitle" class="form-control" placeholder="Contoh: Tinjauan Kepatuhan Perlindungan Data Pribadi" required>
+          </div>
+
+          <div class="form-grid-2">
+            <div class="form-group">
+              <label class="form-label" for="createCategory">Kategori</label>
+              <input type="text" id="createCategory" class="form-control" value="General" placeholder="Contoh: Regulasi, Audit, AML">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="createRequestedBy">Pemberi Tugas / Asal Permintaan</label>
+              <input type="text" id="createRequestedBy" class="form-control" placeholder="Contoh: Direksi, Komite Audit">
+            </div>
+          </div>
+
+          <div class="form-grid-2">
+            <div class="form-group">
+              <label class="form-label" for="createReceivedOn">Tanggal Diterima <span class="required">*</span></label>
+              <input type="date" id="createReceivedOn" class="form-control" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="createDueOn">Tenggat Waktu (Opsional)</label>
+              <input type="date" id="createDueOn" class="form-control">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="createPriority">Tingkat Prioritas</label>
+            <select id="createPriority" class="form-control">
+              <option value="normal" selected>Normal</option>
+              <option value="low">Rendah</option>
+              <option value="high">Tinggi</option>
+              <option value="critical">Kritis</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="createDescription">Deskripsi & Ruang Lingkup</label>
+            <textarea id="createDescription" class="form-control" rows="3" placeholder="Uraikan detail tugas, dokumen terkait, atau dasar regulasi..."></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-close-modal="modalCreateWork">Batal</button>
+          <button type="submit" class="btn btn-primary">Simpan Pekerjaan</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: Edit Pekerjaan -->
+  <div class="modal-overlay" id="modalEditWork">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-title">Edit Pekerjaan: <span id="editWorkCodeDisplay" class="work-code-badge"></span></div>
+        <button class="modal-close" data-close-modal="modalEditWork" aria-label="Tutup">&times;</button>
+      </div>
+      <form id="formEditWork">
+        <input type="hidden" id="editWorkId">
+        <div class="modal-body">
+          <div class="form-group">
+            <label class="form-label" for="editTitle">Judul Pekerjaan <span class="required">*</span></label>
+            <input type="text" id="editTitle" class="form-control" required>
+          </div>
+
+          <div class="form-grid-2">
+            <div class="form-group">
+              <label class="form-label" for="editCategory">Kategori</label>
+              <input type="text" id="editCategory" class="form-control" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="editRequestedBy">Pemberi Tugas</label>
+              <input type="text" id="editRequestedBy" class="form-control">
+            </div>
+          </div>
+
+          <div class="form-grid-2">
+            <div class="form-group">
+              <label class="form-label" for="editReceivedOn">Tanggal Diterima <span class="required">*</span></label>
+              <input type="date" id="editReceivedOn" class="form-control" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="editDueOn">Tenggat Waktu</label>
+              <input type="date" id="editDueOn" class="form-control">
+            </div>
+          </div>
+
+          <div class="form-grid-2">
+            <div class="form-group">
+              <label class="form-label" for="editPriority">Prioritas</label>
+              <select id="editPriority" class="form-control">
+                <option value="low">Rendah</option>
+                <option value="normal">Normal</option>
+                <option value="high">Tinggi</option>
+                <option value="critical">Kritis</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="editStatus">Status Pekerjaan</label>
+              <select id="editStatus" class="form-control">
+                <option value="not_started">Belum Mulai</option>
+                <option value="in_progress">Dalam Proses</option>
+                <option value="waiting">Menunggu</option>
+                <option value="completed">Selesai</option>
+                <option value="cancelled">Dibatalkan</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="editDescription">Deskripsi & Catatan</label>
+            <textarea id="editDescription" class="form-control" rows="3"></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-close-modal="modalEditWork">Batal</button>
+          <button type="submit" class="btn btn-primary">Simpan Pembaruan</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: Detail Pekerjaan & Activity Log -->
+  <div class="modal-overlay" id="modalWorkDetail">
+    <div class="modal-card" style="max-width: 720px;">
+      <div class="modal-header">
+        <div class="modal-title">
+          <span id="detailWorkCode" class="work-code-badge" style="font-size: 14px;"></span>
+          <span id="detailTitle" style="margin-left: 8px;"></span>
+        </div>
+        <button class="modal-close" data-close-modal="modalWorkDetail" aria-label="Tutup">&times;</button>
+      </div>
+      <div class="modal-body">
+        <!-- Informasi Ringkas Pekerjaan -->
+        <div style="background-color: var(--bg-muted); border-radius: var(--radius-md); padding: 14px; margin-bottom: 20px;">
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; font-size: 12.5px;">
+            <div>
+              <span style="color: var(--text-muted); display: block;">Status:</span>
+              <span id="detailStatusBadge"></span>
+            </div>
+            <div>
+              <span style="color: var(--text-muted); display: block;">Prioritas:</span>
+              <span id="detailPriorityBadge"></span>
+            </div>
+            <div>
+              <span style="color: var(--text-muted); display: block;">Kategori:</span>
+              <strong id="detailCategory"></strong>
+            </div>
+            <div>
+              <span style="color: var(--text-muted); display: block;">Pemberi Tugas:</span>
+              <span id="detailRequestedBy"></span>
+            </div>
+            <div>
+              <span style="color: var(--text-muted); display: block;">Diterima:</span>
+              <span id="detailReceivedOn"></span>
+            </div>
+            <div>
+              <span style="color: var(--text-muted); display: block;">Tenggat:</span>
+              <span id="detailDueOn"></span>
+            </div>
+          </div>
+          <div style="margin-top: 10px; border-top: 1px solid var(--border-color); padding-top: 8px; font-size: 13px;">
+            <span style="color: var(--text-muted); display: block; margin-bottom: 2px;">Deskripsi:</span>
+            <div id="detailDescription" style="white-space: pre-wrap;"></div>
+          </div>
+        </div>
+
+        <!-- Form Tambah Catatan Aktivitas -->
+        <div class="card" style="margin-bottom: 20px;">
+          <div class="card-header" style="padding: 10px 14px;">
+            <div class="card-title" style="font-size: 13.5px;">Tambah Catatan Aktivitas (Append-Only)</div>
+          </div>
+          <div class="card-body" style="padding: 14px;">
+            <form id="formAddActivity">
+              <input type="hidden" id="activityModalWorkId">
+              <div class="form-group" style="margin-bottom: 10px;">
+                <textarea id="activityDescription" class="form-control" rows="2" placeholder="Tuliskan catatan progres atau tindakan yang telah dilakukan..." required></textarea>
+              </div>
+              <div style="display: flex; justify-content: flex-end;">
+                <button type="submit" class="btn btn-primary btn-sm">Simpan Catatan</button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <!-- Timeline Log -->
+        <div style="font-weight: 700; font-size: 14px; margin-bottom: 12px;">Kronologi & Riwayat Perubahan:</div>
+        <div id="detailTimelineContainer">
+          <div class="loading-wrap"><div class="spinner"></div></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-close-modal="modalWorkDetail">Tutup</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Konfirmasi Reusable -->
+  <div class="modal-overlay" id="modalConfirm">
+    <div class="modal-card" style="max-width: 440px;">
+      <div class="modal-header">
+        <div class="modal-title" id="confirmDialogTitle">Konfirmasi</div>
+        <button class="modal-close" data-close-modal="modalConfirm" aria-label="Tutup">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p id="confirmDialogMessage" style="font-size: 13.5px;"></p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-close-modal="modalConfirm">Batal</button>
+        <button type="button" id="btnConfirmAction" class="btn btn-primary">Lanjutkan</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div class="toast-container" id="toastContainer" aria-live="polite"></div>
+
+  <!-- Script Aplikasi -->
+  <script src="/js/api.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>

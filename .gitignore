@@ -1,0 +1,47 @@
+﻿# Compliance Workspace - Git Ignore
+
+# UAT and archived test data
+/uat/
+/uat-backup-before-release-*/
+
+# Generated release packages
+/release/
+
+# Runtime application data
+/data/
+/backups/
+/exports/
+
+# SQLite databases
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+
+# Executables and generated archives
+*.exe
+*.zip
+
+# Temporary test directories
+/temp-portability-sandbox-*/
+
+# Logs and temporary files
+*.log
+*.tmp
+
+# Credentials
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.pfx
+
+# Operating system
+Thumbs.db
+.DS_Store
+
+# Editor files
+.vscode/
+.idea/
