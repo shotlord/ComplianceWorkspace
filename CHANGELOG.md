@@ -6,9 +6,9 @@ Format berkas ini mengacu pada [Keep a Changelog](https://keepachangelog.com/id/
 
 ---
 
-## [1.1.0] - Unreleased (Release Candidate)
+## [1.1.0] - 2026-10-18
 
-Pembaruan Compliance Workspace v1.1.0 (Release Candidate) menghadirkan peningkatan signifikan pada kapabilitas manajemen penugasan kepatuhan, pusat impor data massal, siklus hidup pencadangan, penghapusan data aman berbasis audit, serta integrasi identitas visual (*branding*) Windows resmi.
+Pembaruan Compliance Workspace v1.1.0 menghadirkan peningkatan signifikan pada kapabilitas manajemen penugasan kepatuhan, pusat impor data massal, siklus hidup pencadangan, penghapusan data aman berbasis audit, serta integrasi identitas visual (*branding*) Windows resmi.
 
 ### Ditambahkan (Added)
 
