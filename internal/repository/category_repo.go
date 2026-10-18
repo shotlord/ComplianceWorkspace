@@ -83,6 +83,17 @@ func (r *CategoryRepository) GetByName(ctx context.Context, name string) (*domai
 	return scanCategory(row)
 }
 
+// GetByNameTx mengambil kategori berdasarkan nama secara case-insensitive dalam konteks transaksi
+func (r *CategoryRepository) GetByNameTx(ctx context.Context, tx *sql.Tx, name string) (*domain.Category, error) {
+	query := `
+		SELECT id, name, description, color, is_default, is_active, created_at
+		FROM categories
+		WHERE LOWER(trim(name)) = LOWER(trim(?));
+	`
+	row := tx.QueryRowContext(ctx, query, name)
+	return scanCategory(row)
+}
+
 // IsUsedByWorkItems memeriksa apakah nama kategori telah digunakan pada tabel work_items
 func (r *CategoryRepository) IsUsedByWorkItems(ctx context.Context, categoryName string) (bool, error) {
 	var count int
@@ -111,6 +122,35 @@ func (r *CategoryRepository) Create(ctx context.Context, cat *domain.Category) e
 	createdAtStr := cat.CreatedAt.UTC().Format(time.RFC3339Nano)
 
 	res, err := r.getDB().ExecContext(ctx, query, cat.Name, cat.Description, cat.Color, isDef, isActive, createdAtStr)
+	if err != nil {
+		return fmt.Errorf("gagal menyimpan kategori: %w", err)
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return err
+	}
+	cat.ID = id
+	cat.IsActive = true
+	return nil
+}
+
+// CreateTx menambahkan kategori baru dalam konteks transaksi yang diberikan
+func (r *CategoryRepository) CreateTx(ctx context.Context, tx *sql.Tx, cat *domain.Category) error {
+	query := `
+		INSERT INTO categories (name, description, color, is_default, is_active, created_at)
+		VALUES (?, ?, ?, ?, ?, ?);
+	`
+	isDef := 0
+	if cat.IsDefault {
+		isDef = 1
+	}
+	isActive := 1
+	if !cat.IsActive {
+		isActive = 0
+	}
+	createdAtStr := cat.CreatedAt.UTC().Format(time.RFC3339Nano)
+
+	res, err := tx.ExecContext(ctx, query, cat.Name, cat.Description, cat.Color, isDef, isActive, createdAtStr)
 	if err != nil {
 		return fmt.Errorf("gagal menyimpan kategori: %w", err)
 	}

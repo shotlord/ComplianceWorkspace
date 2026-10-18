@@ -27,6 +27,7 @@ type ImportService struct {
 	importRepo   *repository.ImportRepository
 	workRepo     *repository.WorkItemRepository
 	activityRepo *repository.ActivityLogRepository
+	categoryRepo *repository.CategoryRepository
 	backupSvc    *BackupService
 }
 
@@ -35,6 +36,7 @@ func NewImportService(
 	importRepo *repository.ImportRepository,
 	workRepo *repository.WorkItemRepository,
 	activityRepo *repository.ActivityLogRepository,
+	categoryRepo *repository.CategoryRepository,
 	backupSvc *BackupService,
 ) *ImportService {
 	return &ImportService{
@@ -42,6 +44,7 @@ func NewImportService(
 		importRepo:   importRepo,
 		workRepo:     workRepo,
 		activityRepo: activityRepo,
+		categoryRepo: categoryRepo,
 		backupSvc:    backupSvc,
 	}
 }
@@ -57,6 +60,9 @@ func (s *ImportService) SetDB(db *sql.DB) {
 	defer s.dbMu.Unlock()
 	s.db = db
 	s.importRepo.SetDB(db)
+	if s.categoryRepo != nil {
+		s.categoryRepo.SetDB(db)
+	}
 	// workRepo dan activityRepo adalah pointer shared yang sudah diupdate oleh WorkItemService.SetDB
 }
 
@@ -259,12 +265,25 @@ func (s *ImportService) parseAndValidateRow(
 		pRow.Errors = append(pRow.Errors, fmt.Sprintf("Status '%s' tidak valid (pilih: not_started/belum mulai, in_progress/dalam proses, waiting/menunggu, completed/selesai, cancelled/dibatalkan)", pRow.Status))
 	}
 
-	// Default Kategori
-	if pRow.Category == "" {
+	// Default & Validasi Kategori
+	cleanCat := strings.TrimSpace(pRow.Category)
+	if cleanCat == "" {
 		pRow.Category = "General"
-	} else if len(pRow.Category) > 100 {
+	} else if len(cleanCat) > 100 {
 		pRow.IsValid = false
 		pRow.Errors = append(pRow.Errors, "Nama kategori melebihi 100 karakter")
+	} else {
+		pRow.Category = cleanCat
+		if s.categoryRepo != nil {
+			if existingCat, err := s.categoryRepo.GetByName(ctx, cleanCat); err == nil && existingCat != nil {
+				if !existingCat.IsActive {
+					pRow.IsValid = false
+					pRow.Errors = append(pRow.Errors, fmt.Sprintf("Kategori '%s' berstatus nonaktif. Aktifkan kategori atau gunakan kategori aktif.", existingCat.Name))
+				} else {
+					pRow.Category = existingCat.Name // gunakan canonical casing
+				}
+			}
+		}
 	}
 
 	if len(pRow.Description) > 5000 {
@@ -450,11 +469,42 @@ func (s *ImportService) CommitImport(
 			compAt = &now
 		}
 
+		finalCatName := strings.TrimSpace(row.Category)
+		if finalCatName == "" {
+			finalCatName = "General"
+		}
+		if s.categoryRepo != nil {
+			cat, err := s.categoryRepo.GetByNameTx(ctx, tx, finalCatName)
+			if err != nil && !errors.Is(err, sql.ErrNoRows) {
+				return nil, fmt.Errorf("gagal memeriksa kategori '%s' baris %d: %w", finalCatName, row.RowNumber, err)
+			}
+			if cat != nil {
+				if !cat.IsActive {
+					return nil, fmt.Errorf("kategori '%s' pada baris %d berstatus nonaktif dan tidak dapat digunakan untuk pekerjaan baru", cat.Name, row.RowNumber)
+				}
+				finalCatName = cat.Name
+			} else {
+				// Daftarkan kategori kustom baru secara atomik dalam transaksi yang sama
+				newCat := &domain.Category{
+					Name:        finalCatName,
+					Description: "Kategori dibuat otomatis dari impor data",
+					Color:       "#4f46e5",
+					IsDefault:   false,
+					IsActive:    true,
+					CreatedAt:   now,
+				}
+				if err := s.categoryRepo.CreateTx(ctx, tx, newCat); err != nil {
+					return nil, fmt.Errorf("gagal mendaftarkan kategori baru '%s' baris %d: %w", finalCatName, row.RowNumber, err)
+				}
+				finalCatName = newCat.Name
+			}
+		}
+
 		wi := &domain.WorkItem{
 			WorkCode:           code,
 			Title:              row.Title,
 			Description:        row.Description,
-			Category:           row.Category,
+			Category:           finalCatName,
 			RequestedBy:        row.RequestedBy,
 			ReceivedOn:         row.ReceivedOn,
 			DueOn:              row.DueOn,

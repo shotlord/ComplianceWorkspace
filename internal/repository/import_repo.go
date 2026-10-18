@@ -3,7 +3,9 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -164,11 +166,13 @@ func (r *ImportRepository) GetBatchByID(ctx context.Context, id int64) (*domain.
 func (r *ImportRepository) GetBatchItems(ctx context.Context, batchID int64) ([]*domain.ImportItem, error) {
 	query := `
 		SELECT
-			id, batch_id, row_number, work_item_id, status, action_type,
-			error_message, raw_data_json, created_at
-		FROM import_items
-		WHERE batch_id = ?
-		ORDER BY row_number ASC
+			ii.id, ii.batch_id, ii.row_number, ii.work_item_id, ii.status, ii.action_type,
+			ii.error_message, ii.raw_data_json, ii.created_at,
+			COALESCE(wi.work_code, ''), COALESCE(wi.title, ''), COALESCE(wi.requested_by, ''), COALESCE(wi.received_on, '')
+		FROM import_items ii
+		LEFT JOIN work_items wi ON wi.id = ii.work_item_id
+		WHERE ii.batch_id = ?
+		ORDER BY ii.row_number ASC
 	`
 	rows, err := r.getDB().QueryContext(ctx, query, batchID)
 	if err != nil {
@@ -182,10 +186,12 @@ func (r *ImportRepository) GetBatchItems(ctx context.Context, batchID int64) ([]
 		var workItemID sql.NullInt64
 		var errMessage, rawDataJSON sql.NullString
 		var createdAtStr string
+		var workCode, title, requestedBy, receivedOn string
 
 		if err := rows.Scan(
 			&item.ID, &item.BatchID, &item.RowNumber, &workItemID, &item.Status, &item.ActionType,
 			&errMessage, &rawDataJSON, &createdAtStr,
+			&workCode, &title, &requestedBy, &receivedOn,
 		); err != nil {
 			return nil, err
 		}
@@ -193,11 +199,32 @@ func (r *ImportRepository) GetBatchItems(ctx context.Context, batchID int64) ([]
 		if workItemID.Valid {
 			item.WorkItemID = &workItemID.Int64
 		}
+		item.WorkCode = workCode
+		item.Title = title
+		item.RequestedBy = requestedBy
+		item.ReceivedOn = receivedOn
+
 		if errMessage.Valid {
 			item.ErrorMessage = errMessage.String
 		}
 		if rawDataJSON.Valid {
 			item.RawDataJSON = rawDataJSON.String
+			// Fallback: jika belum terisi dari work_items (misal row skipped/failed), ekstrak dari raw_data_json
+			if item.Title == "" && item.RawDataJSON != "" {
+				var rawMap map[string]string
+				if err := json.Unmarshal([]byte(item.RawDataJSON), &rawMap); err == nil {
+					for k, v := range rawMap {
+						kLower := strings.ToLower(strings.TrimSpace(k))
+						if item.Title == "" && (strings.Contains(kLower, "judul") || kLower == "title") {
+							item.Title = strings.TrimSpace(v)
+						} else if item.RequestedBy == "" && (strings.Contains(kLower, "pemberi") || strings.Contains(kLower, "requested")) {
+							item.RequestedBy = strings.TrimSpace(v)
+						} else if item.ReceivedOn == "" && (strings.Contains(kLower, "tanggal") || strings.Contains(kLower, "received")) {
+							item.ReceivedOn = strings.TrimSpace(v)
+						}
+					}
+				}
+			}
 		}
 		if t, err := time.Parse(time.RFC3339Nano, createdAtStr); err == nil {
 			item.CreatedAt = t.UTC()

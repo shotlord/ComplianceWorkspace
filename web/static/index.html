@@ -476,9 +476,15 @@
 
               <!-- Tab 3: Kategori Pekerjaan -->
               <div id="tabContentCategories" class="tab-pane" style="display: none;">
-                <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 14px;">
-                  Master kategori kepatuhan digunakan untuk pengelompokan pekerjaan, filtering, serta laporan kepatuhan.
-                </p>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+                  <p style="font-size: 13px; color: var(--text-muted); margin: 0;">
+                    Master kategori kepatuhan digunakan untuk pengelompokan pekerjaan, filtering, serta laporan kepatuhan.
+                  </p>
+                  <button type="button" id="btnRefreshCategories" class="btn btn-secondary btn-sm">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                    Segarkan
+                  </button>
+                </div>
                 <div class="table-responsive">
                   <table class="data-table">
                     <thead>

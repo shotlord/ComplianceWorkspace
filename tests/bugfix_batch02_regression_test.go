@@ -40,7 +40,7 @@ func setupFullServices(t *testing.T, dbPath, backupDir string) (
 
 	workSvc := service.NewWorkItemService(db, workRepo, actRepo)
 	taskSvc := service.NewTaskManagementService(db, workRepo, actRepo, subtaskRepo, categoryRepo, templateRepo, recurRepo)
-	importSvc := service.NewImportService(db, importRepo, workRepo, actRepo, nil)
+	importSvc := service.NewImportService(db, importRepo, workRepo, actRepo, categoryRepo, nil)
 	backupSvc := service.NewBackupService(workSvc, taskSvc, importSvc, dbPath, backupDir)
 	importSvc.SetBackupService(backupSvc)
 

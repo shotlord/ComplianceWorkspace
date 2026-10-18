@@ -1109,6 +1109,14 @@ function setupModalListeners() {
       if (paneTpl) paneTpl.style.display = tab === "templates" ? "block" : "none";
       if (paneCat) paneCat.style.display = tab === "categories" ? "block" : "none";
 
+      if (tab === "recurring") {
+        loadRecurringSchedules();
+      } else if (tab === "templates") {
+        loadTemplates();
+      } else if (tab === "categories") {
+        loadCategories();
+      }
+
       const labelEl = document.getElementById("btnNewTaskItemLabel");
       if (labelEl) {
         if (tab === "recurring") labelEl.textContent = "Tambah Jadwal";
@@ -1117,6 +1125,11 @@ function setupModalListeners() {
       }
     });
   });
+
+  const btnRefreshCat = document.getElementById("btnRefreshCategories");
+  if (btnRefreshCat) {
+    btnRefreshCat.addEventListener("click", () => loadCategories());
+  }
 
   const btnOpenNewTaskItem = document.getElementById("btnOpenNewTaskItemModal");
   if (btnOpenNewTaskItem) {
@@ -3130,8 +3143,12 @@ async function executeCommitImport() {
         // Pindah ke Step 4
         setImportWizardStep(4);
 
-        // Muat ulang data pekerjaan
-        await loadWorkItems();
+        // Muat ulang data pekerjaan, riwayat impor, dan master kategori
+        await Promise.all([
+          loadWorkItems(),
+          loadImportHistory(),
+          loadCategories()
+        ]);
       } catch (err) {
         UI.showToast(`Gagal melakukan impor: ${err.message}`, "error");
       } finally {
@@ -3151,7 +3168,7 @@ async function loadImportHistory() {
 
   try {
     const res = await API.listImportHistory(50, 0);
-    const batches = (res && res.batches) ? res.batches : [];
+    const batches = Array.isArray(res) ? res : ((res && res.batches) ? res.batches : []);
     renderImportHistoryTable(batches);
   } catch (err) {
     tbody.innerHTML = `<tr><td colspan="10" class="empty-state" style="color: var(--danger);">Gagal memuat riwayat: ${err.message}</td></tr>`;

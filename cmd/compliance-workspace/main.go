@@ -58,7 +58,7 @@ func main() {
 	exportService := service.NewExportService(workRepo, activityRepo)
 	taskMgmtService := service.NewTaskManagementService(db, workRepo, activityRepo, subtaskRepo, categoryRepo, templateRepo, recurRepo)
 	// importService dibuat dulu tanpa backupService (nil), backupService disetel sesudahnya
-	importService := service.NewImportService(db, importRepo, workRepo, activityRepo, nil)
+	importService := service.NewImportService(db, importRepo, workRepo, activityRepo, categoryRepo, nil)
 	backupService := service.NewBackupService(workItemService, taskMgmtService, importService, cfg.DBPath, cfg.BackupDir)
 	// Setel backupService ke importService setelah keduanya terbentuk
 	importService.SetBackupService(backupService)

@@ -55,7 +55,7 @@ func setupImportTestServer(t *testing.T) (*server.Server, string, *service.Impor
 	exportSvc := service.NewExportService(workRepo, actRepo)
 	backupSvc := service.NewBackupService(workSvc, nil, nil, dbPath, filepath.Join(tempDir, "backups"))
 	taskSvc := service.NewTaskManagementService(db, workRepo, actRepo, subRepo, catRepo, tplRepo, recRepo)
-	importSvc := service.NewImportService(db, importRepo, workRepo, actRepo, backupSvc)
+	importSvc := service.NewImportService(db, importRepo, workRepo, actRepo, catRepo, backupSvc)
 
 	srv, err := server.NewServer("127.0.0.1:0", workSvc, backupSvc, exportSvc, taskSvc, importSvc)
 	if err != nil {

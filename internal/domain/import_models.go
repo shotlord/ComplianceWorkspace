@@ -58,6 +58,10 @@ type ImportItem struct {
 	BatchID      int64     `json:"batch_id"`
 	RowNumber    int       `json:"row_number"`
 	WorkItemID   *int64    `json:"work_item_id,omitempty"`
+	WorkCode     string    `json:"work_code,omitempty"`
+	Title        string    `json:"title,omitempty"`
+	RequestedBy  string    `json:"requested_by,omitempty"`
+	ReceivedOn   string    `json:"received_on,omitempty"`
 	Status       string    `json:"status"`      // created, updated, skipped, failed
 	ActionType   string    `json:"action_type"` // insert, skip
 	ErrorMessage string    `json:"error_message,omitempty"`
