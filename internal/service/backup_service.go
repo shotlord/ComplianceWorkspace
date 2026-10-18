@@ -366,15 +366,30 @@ func (s *BackupService) DeleteBackups(ctx context.Context, filenames []string) (
 
 func countTableSafe(ctx context.Context, db *sql.DB, tableName string, filterDeleted bool) int {
 	var tableExists int
-	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?", tableName).Scan(&tableExists)
-	if tableExists == 0 {
+	err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?", tableName).Scan(&tableExists)
+	if err != nil || tableExists == 0 {
 		return 0
 	}
 	query := fmt.Sprintf("SELECT COUNT(*) FROM %s", tableName)
 	if filterDeleted && tableName == "work_items" {
-		var colExists int
-		_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM pragma_table_info('work_items') WHERE name='deleted_at'").Scan(&colExists)
-		if colExists > 0 {
+		colExists := false
+		rows, err := db.QueryContext(ctx, "PRAGMA table_info(work_items);")
+		if err == nil {
+			for rows.Next() {
+				var cid int
+				var colName, colType string
+				var notNull, pk int
+				var dfltVal sql.NullString
+				if err := rows.Scan(&cid, &colName, &colType, &notNull, &dfltVal, &pk); err == nil {
+					if colName == "deleted_at" {
+						colExists = true
+						break
+					}
+				}
+			}
+			_ = rows.Close()
+		}
+		if colExists {
 			query += " WHERE deleted_at IS NULL"
 		}
 	}
@@ -398,6 +413,9 @@ func getDatabaseSummary(ctx context.Context, db *sql.DB) domain.DatabaseSummary 
 func (s *BackupService) InspectBackup(ctx context.Context, filename string) (*domain.RestoreInspectionResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	inspectCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
 
 	cleaned, err := validateBackupFilename(filename)
 	if err != nil {
@@ -428,7 +446,7 @@ func (s *BackupService) InspectBackup(ctx context.Context, filename string) (*do
 	defer checkDB.Close()
 
 	var integrityResult string
-	if err := checkDB.QueryRowContext(ctx, "PRAGMA integrity_check;").Scan(&integrityResult); err != nil || integrityResult != "ok" {
+	if err := checkDB.QueryRowContext(inspectCtx, "PRAGMA integrity_check;").Scan(&integrityResult); err != nil || integrityResult != "ok" {
 		result.IntegrityStatus = integrityResult
 		result.IsCompatible = false
 		result.Warnings = append(result.Warnings, fmt.Sprintf("Integritas berkas cadangan tidak valid: %s", integrityResult))
@@ -438,19 +456,19 @@ func (s *BackupService) InspectBackup(ctx context.Context, filename string) (*do
 
 	var schemaVersion int
 	var hasMigrations int
-	_ = checkDB.QueryRowContext(ctx, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='schema_migrations'").Scan(&hasMigrations)
+	_ = checkDB.QueryRowContext(inspectCtx, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='schema_migrations'").Scan(&hasMigrations)
 	if hasMigrations > 0 {
-		_ = checkDB.QueryRowContext(ctx, "SELECT COALESCE(MAX(version), 0) FROM schema_migrations").Scan(&schemaVersion)
+		_ = checkDB.QueryRowContext(inspectCtx, "SELECT COALESCE(MAX(version), 0) FROM schema_migrations").Scan(&schemaVersion)
 	}
 	result.SchemaVersion = schemaVersion
 
 	// Ringkasan data cadangan
-	result.DataSummary = getDatabaseSummary(ctx, checkDB)
+	result.DataSummary = getDatabaseSummary(inspectCtx, checkDB)
 
 	// Ringkasan database aktif
 	activeDB := s.workItemService.GetDB()
 	if activeDB != nil {
-		result.ActiveDatabaseSummary = getDatabaseSummary(ctx, activeDB)
+		result.ActiveDatabaseSummary = getDatabaseSummary(inspectCtx, activeDB)
 	}
 
 	// Evaluasi kompatibilitas dan perbedaan

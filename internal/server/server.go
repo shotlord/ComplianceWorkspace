@@ -486,7 +486,10 @@ func (s *Server) handleGetWorkItemDeletePreview(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	preview, err := s.workItemService.GetDeletePreview(r.Context(), id)
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	preview, err := s.workItemService.GetDeletePreview(ctx, id)
 	if err != nil {
 		if strings.Contains(err.Error(), "tidak ditemukan") {
 			errorResponse(w, http.StatusNotFound, err.Error())
@@ -517,7 +520,10 @@ func (s *Server) handlePermanentDeleteWorkItem(w http.ResponseWriter, r *http.Re
 		req.ConfirmCode = r.URL.Query().Get("confirm_code")
 	}
 
-	deletedItem, err := s.workItemService.PermanentDeleteWorkItem(r.Context(), id, req.ConfirmCode)
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	deletedItem, err := s.workItemService.PermanentDeleteWorkItem(ctx, id, req.ConfirmCode)
 	if err != nil {
 		if strings.Contains(err.Error(), "tidak ditemukan") {
 			errorResponse(w, http.StatusNotFound, err.Error())
@@ -540,7 +546,10 @@ func (s *Server) handleInspectBackup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	inspection, err := s.backupService.InspectBackup(r.Context(), filename)
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+
+	inspection, err := s.backupService.InspectBackup(ctx, filename)
 	if err != nil {
 		if strings.Contains(err.Error(), "tidak ditemukan") {
 			errorResponse(w, http.StatusNotFound, err.Error())

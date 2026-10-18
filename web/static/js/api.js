@@ -40,24 +40,42 @@ const API = (() => {
       options.body = JSON.stringify(options.body);
     }
 
+    let timeoutId = null;
+    let signal = options.signal;
+    if (!signal) {
+      const controller = new AbortController();
+      signal = controller.signal;
+      timeoutId = setTimeout(() => {
+        controller.abort(new Error("Permintaan timeout: Server tidak merespons dalam 15 detik"));
+      }, 15000);
+    }
+
     const config = {
       ...options,
       method,
       headers,
+      signal,
       credentials: "same-origin"
     };
 
-    let res = await fetch(endpoint, config);
+    let res;
+    try {
+      res = await fetch(endpoint, config);
 
-    // Jika terjadi 403 (mungkin token CSRF kedaluwarsa atau belum sinkron), coba perbarui token 1 kali
-    if (res.status === 403 && method !== "GET") {
-      try {
-        const refreshedToken = await fetchCsrfToken();
-        headers["X-CSRF-Token"] = refreshedToken;
-        config.headers = headers;
-        res = await fetch(endpoint, config);
-      } catch {
-        // Biarkan fallback ke penanganan error di bawah jika retry gagal
+      // Jika terjadi 403 (mungkin token CSRF kedaluwarsa atau belum sinkron), coba perbarui token 1 kali
+      if (res.status === 403 && method !== "GET") {
+        try {
+          const refreshedToken = await fetchCsrfToken();
+          headers["X-CSRF-Token"] = refreshedToken;
+          config.headers = headers;
+          res = await fetch(endpoint, config);
+        } catch {
+          // Biarkan fallback ke penanganan error di bawah jika retry gagal
+        }
+      }
+    } finally {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
       }
     }
 
@@ -121,11 +139,12 @@ const API = (() => {
       method: "POST"
     }),
 
-    getWorkItemDeletePreview: (id) => request(`/api/work-items/${encodeURIComponent(id)}/delete-preview`),
+    getWorkItemDeletePreview: (id, options = {}) => request(`/api/work-items/${encodeURIComponent(id)}/delete-preview`, options),
 
-    permanentDeleteWorkItem: (id, confirmCode) => request(`/api/work-items/${encodeURIComponent(id)}`, {
+    permanentDeleteWorkItem: (id, confirmCode, options = {}) => request(`/api/work-items/${encodeURIComponent(id)}`, {
       method: "DELETE",
-      body: { confirm_code: confirmCode }
+      body: { confirm_code: confirmCode },
+      ...options
     }),
 
     // Activity Log Endpoints
@@ -143,11 +162,12 @@ const API = (() => {
       method: "POST"
     }),
 
-    inspectBackup: (filename) => request(`/api/backup/inspect?filename=${encodeURIComponent(filename)}`),
+    inspectBackup: (filename, options = {}) => request(`/api/backup/inspect?filename=${encodeURIComponent(filename)}`, options),
 
-    restoreBackup: (filename) => request("/api/backups/restore", {
+    restoreBackup: (filename, options = {}) => request("/api/backups/restore", {
       method: "POST",
-      body: { filename }
+      body: { filename },
+      ...options
     }),
 
     deleteBackup: (filename) => request(`/api/backup/${encodeURIComponent(filename)}`, {
