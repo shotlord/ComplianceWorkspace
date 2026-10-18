@@ -666,6 +666,7 @@ func (s *TaskManagementService) ApplyTemplateWithInput(ctx context.Context, temp
 		Priority:           priority,
 		Status:             domain.StatusNotStarted,
 		ProgressPercentage: 0,
+		Provenance:         domain.ProvenanceTemplate,
 		CreatedAt:          now,
 		UpdatedAt:          now,
 	}
@@ -996,6 +997,7 @@ func (s *TaskManagementService) TriggerRecurringWithReport(ctx context.Context, 
 			Priority:           sch.Priority,
 			Status:             domain.StatusNotStarted,
 			ProgressPercentage: 0,
+			Provenance:         domain.ProvenanceRecurring,
 			CreatedAt:          now,
 			UpdatedAt:          now,
 		}

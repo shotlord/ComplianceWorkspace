@@ -93,6 +93,7 @@ const API = (() => {
       if (params.category) query.set("category", params.category);
       if (params.search) query.set("search", params.search);
       if (params.include_archived) query.set("include_archived", "true");
+      if (params.provenance) query.set("provenance", params.provenance);
       if (params.sort_by) query.set("sort_by", params.sort_by);
       if (params.sort_order) query.set("sort_order", params.sort_order);
 

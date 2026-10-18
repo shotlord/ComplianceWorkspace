@@ -464,11 +464,7 @@ function populateCategorySelects(preferredValue = null, targetSelectId = null) {
 
 function getWorkItemProvenance(item) {
   if (item && item.provenance) return item.provenance;
-  const req = (item?.requested_by || "").trim();
-  if (req.startsWith("Jadwal Rutin #")) return "recurring";
-  if (req.toLowerCase().includes("impor") || req.toLowerCase().includes("import")) return "import";
-  if (req.startsWith("Template:")) return "template";
-  return "manual";
+  return "unknown";
 }
 
 async function loadTemplates() {
@@ -720,8 +716,10 @@ function renderWorkRegister() {
       provDiv.innerHTML = '<span class="badge badge-status-in_progress"><span class="badge-dot"></span>Impor</span>';
     } else if (prov === "template") {
       provDiv.innerHTML = '<span class="badge badge-status-completed"><span class="badge-dot"></span>Template</span>';
-    } else {
+    } else if (prov === "manual") {
       provDiv.innerHTML = '<span class="badge badge-status-not_started"><span class="badge-dot"></span>Manual</span>';
+    } else {
+      provDiv.innerHTML = '<span class="badge" style="background:var(--bg-muted, #f1f5f9);color:var(--text-muted, #64748b);border:1px solid var(--border-color, #cbd5e1);"><span class="badge-dot" style="background:#94a3b8;"></span>Tidak Diketahui</span>';
     }
 
     const reqDiv = document.createElement("div");

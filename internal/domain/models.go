@@ -34,6 +34,25 @@ const (
 	EntryTypeRestored      = "restored"
 )
 
+// Asal/Provenance pekerjaan (v1.1.0 Batch 06)
+const (
+	ProvenanceManual    = "manual"
+	ProvenanceTemplate  = "template"
+	ProvenanceRecurring = "recurring"
+	ProvenanceImport    = "import"
+	ProvenanceUnknown   = "unknown"
+)
+
+// IsValidProvenance memeriksa apakah nilai provenance valid
+func IsValidProvenance(p string) bool {
+	switch p {
+	case ProvenanceManual, ProvenanceTemplate, ProvenanceRecurring, ProvenanceImport, ProvenanceUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
 // WorkItem mewakili entitas pekerjaan dalam sistem
 type WorkItem struct {
 	ID                    int64      `json:"id"`

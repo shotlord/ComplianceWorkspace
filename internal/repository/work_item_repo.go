@@ -20,6 +20,7 @@ type WorkItemFilter struct {
 	IncludeArchived bool
 	DueBefore       string // YYYY-MM-DD
 	DueTodayOrPast  string // YYYY-MM-DD
+	Provenance      string // manual, template, recurring, import, unknown
 	SortBy          string
 	SortOrder       string
 }
@@ -68,12 +69,18 @@ func (r *WorkItemRepository) GenerateNextWorkCode(ctx context.Context, tx *sql.T
 
 // CreateTx menyimpan pekerjaan baru di dalam transaksi yang aktif
 func (r *WorkItemRepository) CreateTx(ctx context.Context, tx *sql.Tx, item *domain.WorkItem) error {
+	prov := item.Provenance
+	if prov == "" {
+		prov = domain.ProvenanceManual
+	}
+	item.Provenance = prov
+
 	query := `
 		INSERT INTO work_items (
 			work_code, title, description, category, requested_by,
 			received_on, due_on, priority, status, progress_percentage,
-			completed_at, created_at, updated_at, archived_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			provenance, completed_at, created_at, updated_at, archived_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 	var completedAtStr *string
 	if item.CompletedAt != nil {
@@ -93,7 +100,7 @@ func (r *WorkItemRepository) CreateTx(ctx context.Context, tx *sql.Tx, item *dom
 	res, err := tx.ExecContext(ctx, query,
 		item.WorkCode, item.Title, item.Description, item.Category, item.RequestedBy,
 		item.ReceivedOn, item.DueOn, item.Priority, item.Status, item.ProgressPercentage,
-		completedAtStr, createdAtStr, updatedAtStr, archivedAtStr,
+		prov, completedAtStr, createdAtStr, updatedAtStr, archivedAtStr,
 	)
 	if err != nil {
 		return fmt.Errorf("gagal mengeksekusi insert pekerjaan: %w", err)
@@ -177,12 +184,7 @@ func (r *WorkItemRepository) GetByID(ctx context.Context, id int64) (*domain.Wor
 			created_at, updated_at, archived_at,
 			(SELECT COUNT(*) FROM subtasks WHERE work_item_id = work_items.id) AS subtask_count,
 			(SELECT COUNT(*) FROM subtasks WHERE work_item_id = work_items.id AND is_completed = 1) AS completed_subtask_count,
-			CASE
-				WHEN work_items.requested_by LIKE 'Jadwal Rutin #%' THEN 'recurring'
-				WHEN EXISTS (SELECT 1 FROM import_items WHERE import_items.work_item_id = work_items.id) THEN 'import'
-				WHEN work_items.requested_by LIKE 'Template: %' THEN 'template'
-				ELSE 'manual'
-			END AS provenance
+			work_items.provenance
 		FROM work_items
 		WHERE id = ?
 	`
@@ -199,12 +201,7 @@ func (r *WorkItemRepository) GetByIDTx(ctx context.Context, tx *sql.Tx, id int64
 			created_at, updated_at, archived_at,
 			(SELECT COUNT(*) FROM subtasks WHERE work_item_id = work_items.id) AS subtask_count,
 			(SELECT COUNT(*) FROM subtasks WHERE work_item_id = work_items.id AND is_completed = 1) AS completed_subtask_count,
-			CASE
-				WHEN work_items.requested_by LIKE 'Jadwal Rutin #%' THEN 'recurring'
-				WHEN EXISTS (SELECT 1 FROM import_items WHERE import_items.work_item_id = work_items.id) THEN 'import'
-				WHEN work_items.requested_by LIKE 'Template: %' THEN 'template'
-				ELSE 'manual'
-			END AS provenance
+			work_items.provenance
 		FROM work_items
 		WHERE id = ?
 	`
@@ -234,6 +231,11 @@ func (r *WorkItemRepository) List(ctx context.Context, filter WorkItemFilter) ([
 	if filter.Category != "" {
 		conditions = append(conditions, "category = ?")
 		args = append(args, filter.Category)
+	}
+
+	if filter.Provenance != "" {
+		conditions = append(conditions, "work_items.provenance = ?")
+		args = append(args, filter.Provenance)
 	}
 
 	if filter.Search != "" {
@@ -273,12 +275,7 @@ func (r *WorkItemRepository) List(ctx context.Context, filter WorkItemFilter) ([
 			created_at, updated_at, archived_at,
 			(SELECT COUNT(*) FROM subtasks WHERE work_item_id = work_items.id) AS subtask_count,
 			(SELECT COUNT(*) FROM subtasks WHERE work_item_id = work_items.id AND is_completed = 1) AS completed_subtask_count,
-			CASE
-				WHEN work_items.requested_by LIKE 'Jadwal Rutin #%%' THEN 'recurring'
-				WHEN EXISTS (SELECT 1 FROM import_items WHERE import_items.work_item_id = work_items.id) THEN 'import'
-				WHEN work_items.requested_by LIKE 'Template: %%' THEN 'template'
-				ELSE 'manual'
-			END AS provenance
+			work_items.provenance
 		FROM work_items
 		%s
 		ORDER BY %s %s, id DESC
@@ -344,7 +341,7 @@ func scanWorkItem(scanner rowScanner) (*domain.WorkItem, error) {
 	if provenance.Valid && provenance.String != "" {
 		item.Provenance = provenance.String
 	} else {
-		item.Provenance = "manual"
+		item.Provenance = domain.ProvenanceUnknown
 	}
 
 	if workCode.Valid {

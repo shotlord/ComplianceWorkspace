@@ -237,6 +237,7 @@ func (s *Server) handleListWorkItems(w http.ResponseWriter, r *http.Request) {
 		Category:        q.Get("category"),
 		Search:          q.Get("search"),
 		IncludeArchived: q.Get("include_archived") == "true" || q.Get("include_archived") == "1",
+		Provenance:      q.Get("provenance"),
 		SortBy:          q.Get("sort_by"),
 		SortOrder:       q.Get("sort_order"),
 	}

@@ -511,6 +511,7 @@ func (s *ImportService) CommitImport(
 			Priority:           row.Priority,
 			Status:             row.Status,
 			ProgressPercentage: progPct,
+			Provenance:         domain.ProvenanceImport,
 			CompletedAt:        compAt,
 			CreatedAt:          now,
 			UpdatedAt:          now,

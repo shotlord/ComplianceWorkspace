@@ -82,10 +82,11 @@ func (s *WorkItemService) CreateWorkItem(ctx context.Context, in domain.CreateWo
 		RequestedBy: in.RequestedBy,
 		ReceivedOn:  in.ReceivedOn,
 		DueOn:       in.DueOn,
-		Priority:    in.Priority,
-		Status:      domain.StatusNotStarted,
-		CreatedAt:   now,
-		UpdatedAt:   now,
+		Priority:   in.Priority,
+		Status:     domain.StatusNotStarted,
+		Provenance: domain.ProvenanceManual,
+		CreatedAt:  now,
+		UpdatedAt:  now,
 	}
 
 	if err := s.workRepo.CreateTx(ctx, tx, item); err != nil {
