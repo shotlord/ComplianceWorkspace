@@ -33,7 +33,7 @@ type BackupItem struct {
 
 // BackupService mengelola proses backup konsisten (VACUUM INTO) dan restore basis data
 type BackupService struct {
-	mu              sync.Mutex
+	mu              sync.RWMutex
 	workItemService *WorkItemService
 	taskMgmtSvc    *TaskManagementService
 	importSvc       *ImportService
@@ -370,30 +370,16 @@ func countTableSafe(ctx context.Context, db *sql.DB, tableName string, filterDel
 	if err != nil || tableExists == 0 {
 		return 0
 	}
-	query := fmt.Sprintf("SELECT COUNT(*) FROM %s", tableName)
 	if filterDeleted && tableName == "work_items" {
-		colExists := false
-		rows, err := db.QueryContext(ctx, "PRAGMA table_info(work_items);")
-		if err == nil {
-			for rows.Next() {
-				var cid int
-				var colName, colType string
-				var notNull, pk int
-				var dfltVal sql.NullString
-				if err := rows.Scan(&cid, &colName, &colType, &notNull, &dfltVal, &pk); err == nil {
-					if colName == "deleted_at" {
-						colExists = true
-						break
-					}
-				}
-			}
-			_ = rows.Close()
+		var count int
+		// Mencoba query dengan filter deleted_at IS NULL
+		if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM work_items WHERE deleted_at IS NULL").Scan(&count); err == nil {
+			return count
 		}
-		if colExists {
-			query += " WHERE deleted_at IS NULL"
-		}
+		// Jika kolom deleted_at belum ada (skema lama pre-v6), lanjut hitung total
 	}
 	var count int
+	query := fmt.Sprintf("SELECT COUNT(*) FROM %s", tableName)
 	_ = db.QueryRowContext(ctx, query).Scan(&count)
 	return count
 }
@@ -411,8 +397,8 @@ func getDatabaseSummary(ctx context.Context, db *sql.DB) domain.DatabaseSummary 
 
 // InspectBackup memeriksa isi berkas cadangan dan membandingkannya dengan database aktif saat ini
 func (s *BackupService) InspectBackup(ctx context.Context, filename string) (*domain.RestoreInspectionResult, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
 	inspectCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()

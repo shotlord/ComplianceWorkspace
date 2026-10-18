@@ -345,6 +345,26 @@ type rowScanner interface {
 	Scan(dest ...interface{}) error
 }
 
+func parseFlexibleTimestamp(s string) (time.Time, error) {
+	s = strings.TrimSpace(s)
+	formats := []string{
+		time.RFC3339Nano,
+		time.RFC3339,
+		"2006-01-02 15:04:05.999999999-07:00",
+		"2006-01-02 15:04:05.999999999",
+		"2006-01-02 15:04:05-07:00",
+		"2006-01-02 15:04:05",
+		"2006-01-02T15:04:05.999999999",
+		"2006-01-02T15:04:05",
+	}
+	for _, format := range formats {
+		if t, err := time.Parse(format, s); err == nil {
+			return t.UTC(), nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("gagal mem-parse timestamp: %s", s)
+}
+
 func scanWorkItem(scanner rowScanner) (*domain.WorkItem, error) {
 	var item domain.WorkItem
 	var workCode, requestedBy sql.NullString
@@ -393,41 +413,33 @@ func scanWorkItem(scanner rowScanner) (*domain.WorkItem, error) {
 		item.DueOn = &dueOn.String
 	}
 
-	if completedAtStr.Valid {
-		t, err := time.Parse(time.RFC3339Nano, completedAtStr.String)
-		if err == nil {
-			tUTC := t.UTC()
-			item.CompletedAt = &tUTC
+	if completedAtStr.Valid && completedAtStr.String != "" {
+		if t, err := parseFlexibleTimestamp(completedAtStr.String); err == nil {
+			item.CompletedAt = &t
 		}
 	}
 
-	if createdAtStr.Valid {
-		t, err := time.Parse(time.RFC3339Nano, createdAtStr.String)
-		if err == nil {
-			item.CreatedAt = t.UTC()
+	if createdAtStr.Valid && createdAtStr.String != "" {
+		if t, err := parseFlexibleTimestamp(createdAtStr.String); err == nil {
+			item.CreatedAt = t
 		}
 	}
 
-	if updatedAtStr.Valid {
-		t, err := time.Parse(time.RFC3339Nano, updatedAtStr.String)
-		if err == nil {
-			item.UpdatedAt = t.UTC()
+	if updatedAtStr.Valid && updatedAtStr.String != "" {
+		if t, err := parseFlexibleTimestamp(updatedAtStr.String); err == nil {
+			item.UpdatedAt = t
 		}
 	}
 
-	if archivedAtStr.Valid {
-		t, err := time.Parse(time.RFC3339Nano, archivedAtStr.String)
-		if err == nil {
-			tUTC := t.UTC()
-			item.ArchivedAt = &tUTC
+	if archivedAtStr.Valid && archivedAtStr.String != "" {
+		if t, err := parseFlexibleTimestamp(archivedAtStr.String); err == nil {
+			item.ArchivedAt = &t
 		}
 	}
 
-	if deletedAtStr.Valid {
-		t, err := time.Parse(time.RFC3339Nano, deletedAtStr.String)
-		if err == nil {
-			tUTC := t.UTC()
-			item.DeletedAt = &tUTC
+	if deletedAtStr.Valid && deletedAtStr.String != "" {
+		if t, err := parseFlexibleTimestamp(deletedAtStr.String); err == nil {
+			item.DeletedAt = &t
 		}
 	}
 

@@ -40,15 +40,26 @@ const API = (() => {
       options.body = JSON.stringify(options.body);
     }
 
-    let timeoutId = null;
-    let signal = options.signal;
-    if (!signal) {
-      const controller = new AbortController();
-      signal = controller.signal;
-      timeoutId = setTimeout(() => {
-        controller.abort(new Error("Permintaan timeout: Server tidak merespons dalam 15 detik"));
-      }, 15000);
+    const timeoutMs = options.timeout || 15000;
+    const internalCtrl = new AbortController();
+    const timeoutId = setTimeout(() => {
+      internalCtrl.abort(new Error(`Permintaan timeout: Server tidak merespons dalam ${timeoutMs / 1000} detik`));
+    }, timeoutMs);
+
+    let abortHandler = null;
+    if (options.signal) {
+      if (options.signal.aborted) {
+        clearTimeout(timeoutId);
+        internalCtrl.abort(options.signal.reason);
+      } else {
+        abortHandler = () => {
+          clearTimeout(timeoutId);
+          internalCtrl.abort(options.signal.reason);
+        };
+        options.signal.addEventListener("abort", abortHandler, { once: true });
+      }
     }
+    const signal = internalCtrl.signal;
 
     const config = {
       ...options,
@@ -76,6 +87,9 @@ const API = (() => {
     } finally {
       if (timeoutId) {
         clearTimeout(timeoutId);
+      }
+      if (options.signal && abortHandler) {
+        options.signal.removeEventListener("abort", abortHandler);
       }
     }
 

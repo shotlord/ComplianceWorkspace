@@ -818,7 +818,7 @@ function renderWorkRegister() {
       btnDelete.className = "btn btn-danger btn-sm";
       btnDelete.textContent = "Hapus";
       btnDelete.title = "Hapus permanen pekerjaan dari basis data";
-      btnDelete.addEventListener("click", () => openPermanentDeleteWorkModal(item.id));
+      btnDelete.addEventListener("click", () => openPermanentDeleteWorkModal(item));
       btnGroup.appendChild(btnDelete);
     }
 
@@ -1821,7 +1821,7 @@ function confirmRestoreWork(item) {
 // Modal Hapus Permanen Pekerjaan (Tombstone dengan konfirmasi kode CMP)
 let permanentDeleteAbortCtrl = null;
 
-async function openPermanentDeleteWorkModal(id) {
+async function openPermanentDeleteWorkModal(itemOrId) {
   const modalId = "modalPermanentDeleteWork";
   const previewContainer = document.getElementById("deleteWorkPreviewInfo");
   const codeLabel = document.getElementById("expectedDeleteWorkCode");
@@ -1837,6 +1837,15 @@ async function openPermanentDeleteWorkModal(id) {
   }
   permanentDeleteAbortCtrl = new AbortController();
 
+  let targetId = itemOrId;
+  let initialCode = "";
+  let initialTitle = "";
+  if (itemOrId && typeof itemOrId === "object") {
+    targetId = itemOrId.id;
+    initialCode = itemOrId.work_code || "";
+    initialTitle = itemOrId.title || "";
+  }
+
   // Reset state ke status Loading dan amankan tombol/input
   confirmInput.value = "";
   confirmInput.disabled = true;
@@ -1844,23 +1853,33 @@ async function openPermanentDeleteWorkModal(id) {
   btnExecute.disabled = true;
   btnExecute.onclick = null;
   btnExecute.textContent = "Hapus Permanen";
-  codeLabel.textContent = "Memuat...";
+
+  if (initialCode) {
+    codeLabel.textContent = initialCode;
+    confirmInput.placeholder = `Ketik ${initialCode} untuk konfirmasi`;
+  } else {
+    codeLabel.textContent = "-";
+    confirmInput.placeholder = "Ketik kode pekerjaan untuk konfirmasi";
+  }
+
   previewContainer.innerHTML = '<div class="spinner"></div><div>Memuat pratinjau dampak penghapusan...</div>';
 
   UI.openModal(modalId);
 
   let preview = null;
   try {
-    preview = await API.getWorkItemDeletePreview(id, { signal: permanentDeleteAbortCtrl.signal });
+    preview = await API.getWorkItemDeletePreview(targetId, { signal: permanentDeleteAbortCtrl.signal });
+
+    const finalCode = preview.work_code || initialCode || "-";
+    codeLabel.textContent = finalCode;
 
     // Success state: isi data pratinjau dan aktifkan input konfirmasi
-    codeLabel.textContent = preview.work_code || "-";
     previewContainer.innerHTML = `
       <div style="display: grid; grid-template-columns: 140px 1fr; row-gap: 6px; column-gap: 8px;">
         <span style="color: var(--text-muted); font-weight: 500;">Kode Pekerjaan:</span>
-        <span style="font-weight: 700;">${UI.escapeHTML(preview.work_code || "")}</span>
+        <span style="font-weight: 700;">${UI.escapeHTML(finalCode)}</span>
         <span style="color: var(--text-muted); font-weight: 500;">Judul:</span>
-        <span style="font-weight: 600;">${UI.escapeHTML(preview.title || "")}</span>
+        <span style="font-weight: 600;">${UI.escapeHTML(preview.title || initialTitle || "")}</span>
         <span style="color: var(--text-muted); font-weight: 500;">Kategori:</span>
         <span>${UI.escapeHTML(preview.category || "-")}</span>
         <span style="color: var(--text-muted); font-weight: 500;">Pemberi Tugas:</span>
@@ -1873,18 +1892,18 @@ async function openPermanentDeleteWorkModal(id) {
     `;
 
     confirmInput.disabled = false;
-    confirmInput.placeholder = `Ketik ${preview.work_code} untuk konfirmasi`;
+    confirmInput.placeholder = `Ketik ${finalCode} untuk konfirmasi`;
 
     confirmInput.oninput = () => {
-      btnExecute.disabled = (confirmInput.value.trim() !== preview.work_code);
+      btnExecute.disabled = (confirmInput.value.trim() !== finalCode);
     };
 
     btnExecute.onclick = async () => {
-      if (confirmInput.value.trim() !== preview.work_code) return;
+      if (confirmInput.value.trim() !== finalCode) return;
       btnExecute.disabled = true;
       btnExecute.textContent = "Menghapus...";
       try {
-        const res = await API.permanentDeleteWorkItem(preview.id, preview.work_code);
+        const res = await API.permanentDeleteWorkItem(preview.id || targetId, finalCode);
         UI.showToast(res.message || "Pekerjaan berhasil dihapus secara permanen.", "success");
         UI.closeModal(modalId);
         await loadWorkItems();
@@ -1895,16 +1914,26 @@ async function openPermanentDeleteWorkModal(id) {
       }
     };
   } catch (err) {
-    if (err.name === "AbortError") return;
-    // Error state: hentikan spinner, tampilkan pesan kesalahan, dan nonaktifkan tindakan
-    codeLabel.textContent = "Gagal";
+    if (err.name === "AbortError" && permanentDeleteAbortCtrl?.signal?.aborted) return;
+    // JANGAN PERNAH menimpa codeLabel dengan "Gagal"
+    if (!initialCode) {
+      codeLabel.textContent = "-";
+    }
     confirmInput.disabled = true;
     btnExecute.disabled = true;
     previewContainer.innerHTML = `
-      <div style="color: var(--danger); padding: 6px 0; font-size: 13px;">
-        <strong>Gagal memuat pratinjau:</strong> ${UI.escapeHTML(err.message || "Terjadi kesalahan saat memuat data")}
+      <div style="color: var(--danger); background-color: #fef2f2; border: 1px solid #fecaca; padding: 12px; border-radius: var(--radius-sm); font-size: 13px;">
+        <div style="font-weight: 700; margin-bottom: 4px;">Gagal Memuat Pratinjau:</div>
+        <div>${UI.escapeHTML(err.message || "Terjadi kesalahan saat memuat data")}</div>
+        <div style="margin-top: 10px;">
+          <button type="button" class="btn btn-secondary btn-sm" id="btnRetryDeletePreview">Coba Lagi</button>
+        </div>
       </div>
     `;
+    const btnRetry = document.getElementById("btnRetryDeletePreview");
+    if (btnRetry) {
+      btnRetry.onclick = () => openPermanentDeleteWorkModal(itemOrId);
+    }
   } finally {
     permanentDeleteAbortCtrl = null;
   }
@@ -2266,13 +2295,21 @@ async function openRestoreInspectionModal(filename) {
       };
     }
   } catch (err) {
-    if (err.name === "AbortError") return;
+    if (err.name === "AbortError" && restoreInspectAbortCtrl?.signal?.aborted) return;
     // Error state: hentikan spinner pada kedua panel, tampilkan pesan error, matikan kontrol
     summaryContainer.innerHTML = `
       <div style="color: var(--danger); background-color: #fef2f2; border: 1px solid #fecaca; padding: 12px; border-radius: var(--radius-sm); font-size: 13px;">
-        <strong>Gagal menginspeksi cadangan:</strong> ${UI.escapeHTML(err.message || "Terjadi kesalahan saat memeriksa berkas")}
+        <div style="font-weight: 700; margin-bottom: 4px;">Gagal Menginspeksi Cadangan:</div>
+        <div>${UI.escapeHTML(err.message || "Terjadi kesalahan saat memeriksa berkas")}</div>
+        <div style="margin-top: 10px;">
+          <button type="button" class="btn btn-secondary btn-sm" id="btnRetryInspectBackup">Coba Lagi</button>
+        </div>
       </div>
     `;
+    const btnRetry = document.getElementById("btnRetryInspectBackup");
+    if (btnRetry) {
+      btnRetry.onclick = () => openRestoreInspectionModal(filename);
+    }
     warningsContainer.innerHTML = "";
     tableBody.innerHTML = `
       <tr>
