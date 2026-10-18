@@ -1818,125 +1818,60 @@ function confirmRestoreWork(item) {
   );
 }
 
-// Modal Hapus Permanen Pekerjaan (Tombstone dengan konfirmasi kode CMP)
-let permanentDeleteAbortCtrl = null;
-
-async function openPermanentDeleteWorkModal(itemOrId) {
+// Modal Hapus Permanen Pekerjaan (Tombstone dengan persetujuan checkbox)
+function openPermanentDeleteWorkModal(itemOrId) {
   const modalId = "modalPermanentDeleteWork";
-  const previewContainer = document.getElementById("deleteWorkPreviewInfo");
-  const codeLabel = document.getElementById("expectedDeleteWorkCode");
-  const confirmInput = document.getElementById("confirmDeleteWorkCode");
+  const codeDisplay = document.getElementById("deleteWorkCodeDisplay");
+  const titleDisplay = document.getElementById("deleteWorkTitleDisplay");
+  const ackCheck = document.getElementById("checkAcknowledgeDeleteWork");
   const btnExecute = document.getElementById("btnExecutePermanentDelete");
 
-  if (!previewContainer || !codeLabel || !confirmInput || !btnExecute) return;
+  if (!codeDisplay || !titleDisplay || !ackCheck || !btnExecute) return;
 
-  // Batalkan permintaan pratinjau sebelumnya jika masih berjalan
-  if (permanentDeleteAbortCtrl) {
-    permanentDeleteAbortCtrl.abort();
-    permanentDeleteAbortCtrl = null;
-  }
-  permanentDeleteAbortCtrl = new AbortController();
+  let targetId = null;
+  let workCode = "";
+  let workTitle = "";
 
-  let targetId = itemOrId;
-  let initialCode = "";
-  let initialTitle = "";
   if (itemOrId && typeof itemOrId === "object") {
     targetId = itemOrId.id;
-    initialCode = itemOrId.work_code || "";
-    initialTitle = itemOrId.title || "";
+    workCode = itemOrId.work_code || "";
+    workTitle = itemOrId.title || "";
+  } else if (typeof itemOrId === "number" || typeof itemOrId === "string") {
+    targetId = itemOrId;
   }
 
-  // Reset state ke status Loading dan amankan tombol/input
-  confirmInput.value = "";
-  confirmInput.disabled = true;
-  confirmInput.oninput = null;
+  codeDisplay.textContent = workCode || "-";
+  titleDisplay.textContent = workTitle || "-";
+
+  // Reset state checkbox dan tombol
+  ackCheck.checked = false;
   btnExecute.disabled = true;
-  btnExecute.onclick = null;
   btnExecute.textContent = "Hapus Permanen";
 
-  if (initialCode) {
-    codeLabel.textContent = initialCode;
-    confirmInput.placeholder = `Ketik ${initialCode} untuk konfirmasi`;
-  } else {
-    codeLabel.textContent = "-";
-    confirmInput.placeholder = "Ketik kode pekerjaan untuk konfirmasi";
-  }
+  ackCheck.onchange = () => {
+    btnExecute.disabled = !ackCheck.checked;
+  };
 
-  previewContainer.innerHTML = '<div class="spinner"></div><div>Memuat pratinjau dampak penghapusan...</div>';
+  btnExecute.onclick = async () => {
+    if (!ackCheck.checked) return;
+    btnExecute.disabled = true;
+    btnExecute.textContent = "Menghapus...";
+    try {
+      const res = await API.permanentDeleteWorkItem(targetId, workCode);
+      UI.showToast(res.message || "Pekerjaan berhasil dihapus secara permanen.", "success");
+      UI.closeModal(modalId);
+      await loadWorkItems();
+      if (typeof renderDashboard === "function") {
+        renderDashboard();
+      }
+    } catch (err) {
+      UI.showToast(`Gagal menghapus pekerjaan: ${err.message}`, "error");
+      btnExecute.disabled = false;
+      btnExecute.textContent = "Hapus Permanen";
+    }
+  };
 
   UI.openModal(modalId);
-
-  let preview = null;
-  try {
-    preview = await API.getWorkItemDeletePreview(targetId, { signal: permanentDeleteAbortCtrl.signal });
-
-    const finalCode = preview.work_code || initialCode || "-";
-    codeLabel.textContent = finalCode;
-
-    // Success state: isi data pratinjau dan aktifkan input konfirmasi
-    previewContainer.innerHTML = `
-      <div style="display: grid; grid-template-columns: 140px 1fr; row-gap: 6px; column-gap: 8px;">
-        <span style="color: var(--text-muted); font-weight: 500;">Kode Pekerjaan:</span>
-        <span style="font-weight: 700;">${UI.escapeHTML(finalCode)}</span>
-        <span style="color: var(--text-muted); font-weight: 500;">Judul:</span>
-        <span style="font-weight: 600;">${UI.escapeHTML(preview.title || initialTitle || "")}</span>
-        <span style="color: var(--text-muted); font-weight: 500;">Kategori:</span>
-        <span>${UI.escapeHTML(preview.category || "-")}</span>
-        <span style="color: var(--text-muted); font-weight: 500;">Pemberi Tugas:</span>
-        <span>${UI.escapeHTML(preview.requested_by || "-")}</span>
-        <span style="color: var(--text-muted); font-weight: 500;">Subtask Dihapus:</span>
-        <span style="color: var(--danger); font-weight: 600;">${preview.subtask_count || 0} checklist item</span>
-        <span style="color: var(--text-muted); font-weight: 500;">Audit Trail:</span>
-        <span style="color: var(--success); font-weight: 600;">${preview.activity_log_count || 0} catatan log tetap dipertahankan</span>
-      </div>
-    `;
-
-    confirmInput.disabled = false;
-    confirmInput.placeholder = `Ketik ${finalCode} untuk konfirmasi`;
-
-    confirmInput.oninput = () => {
-      btnExecute.disabled = (confirmInput.value.trim() !== finalCode);
-    };
-
-    btnExecute.onclick = async () => {
-      if (confirmInput.value.trim() !== finalCode) return;
-      btnExecute.disabled = true;
-      btnExecute.textContent = "Menghapus...";
-      try {
-        const res = await API.permanentDeleteWorkItem(preview.id || targetId, finalCode);
-        UI.showToast(res.message || "Pekerjaan berhasil dihapus secara permanen.", "success");
-        UI.closeModal(modalId);
-        await loadWorkItems();
-      } catch (err) {
-        UI.showToast(`Gagal menghapus pekerjaan: ${err.message}`, "error");
-        btnExecute.disabled = false;
-        btnExecute.textContent = "Hapus Permanen";
-      }
-    };
-  } catch (err) {
-    if (err.name === "AbortError" && permanentDeleteAbortCtrl?.signal?.aborted) return;
-    // JANGAN PERNAH menimpa codeLabel dengan "Gagal"
-    if (!initialCode) {
-      codeLabel.textContent = "-";
-    }
-    confirmInput.disabled = true;
-    btnExecute.disabled = true;
-    previewContainer.innerHTML = `
-      <div style="color: var(--danger); background-color: #fef2f2; border: 1px solid #fecaca; padding: 12px; border-radius: var(--radius-sm); font-size: 13px;">
-        <div style="font-weight: 700; margin-bottom: 4px;">Gagal Memuat Pratinjau:</div>
-        <div>${UI.escapeHTML(err.message || "Terjadi kesalahan saat memuat data")}</div>
-        <div style="margin-top: 10px;">
-          <button type="button" class="btn btn-secondary btn-sm" id="btnRetryDeletePreview">Coba Lagi</button>
-        </div>
-      </div>
-    `;
-    const btnRetry = document.getElementById("btnRetryDeletePreview");
-    if (btnRetry) {
-      btnRetry.onclick = () => openPermanentDeleteWorkModal(itemOrId);
-    }
-  } finally {
-    permanentDeleteAbortCtrl = null;
-  }
 }
 
 // Dialog Konfirmasi Reusable
@@ -2151,180 +2086,49 @@ function handleBatchDeleteBackups() {
   );
 }
 
-// Pre-restore Inspection & Safe Restore Modal
-let restoreInspectAbortCtrl = null;
-
-async function openRestoreInspectionModal(filename) {
+// Modal Pemulihan Basis Data (Restore Backup)
+function openRestoreInspectionModal(filename) {
   const modalId = "modalRestoreConfirm";
-  const summaryContainer = document.getElementById("restoreInspectionSummary");
-  const warningsContainer = document.getElementById("restoreWarningsContainer");
-  const tableBody = document.getElementById("restoreComparisonTableBody");
+  const filenameEl = document.getElementById("restoreBackupFilenameDisplay");
   const ackCheck = document.getElementById("checkAcknowledgeRestoreRisk");
   const btnExecute = document.getElementById("btnExecuteRestore");
 
-  if (!summaryContainer || !warningsContainer || !tableBody || !ackCheck || !btnExecute) return;
+  if (!ackCheck || !btnExecute) return;
 
-  // Batalkan permintaan inspeksi sebelumnya jika masih berjalan
-  if (restoreInspectAbortCtrl) {
-    restoreInspectAbortCtrl.abort();
-    restoreInspectAbortCtrl = null;
+  if (filenameEl) {
+    filenameEl.textContent = filename || "-";
   }
-  restoreInspectAbortCtrl = new AbortController();
 
-  // Reset state ke Loading dan bersihkan listener lama
+  // Reset state
   ackCheck.checked = false;
-  ackCheck.disabled = true;
-  ackCheck.onchange = null;
+  ackCheck.disabled = false;
   btnExecute.disabled = true;
-  btnExecute.onclick = null;
   btnExecute.textContent = "Mulai Pemulihan";
 
-  summaryContainer.innerHTML = '<div class="spinner"></div><div>Melakukan inspeksi mendalam pada berkas cadangan...</div>';
-  warningsContainer.innerHTML = "";
-  tableBody.innerHTML = '<tr><td colspan="4" class="empty-state"><div class="spinner"></div><div>Menganalisis perbandingan data...</div></td></tr>';
+  ackCheck.onchange = () => {
+    btnExecute.disabled = !ackCheck.checked;
+  };
+
+  btnExecute.onclick = async () => {
+    if (!ackCheck.checked) return;
+    btnExecute.disabled = true;
+    btnExecute.textContent = "Memulihkan Database...";
+    try {
+      const res = await API.restoreBackup(filename);
+      UI.showToast(res.message || "Database berhasil dipulihkan", "success");
+      UI.closeModal(modalId);
+      await loadWorkItems();
+      await loadBackups();
+      if (typeof renderDashboard === "function") renderDashboard();
+      if (typeof loadCategories === "function") await loadCategories();
+    } catch (err) {
+      UI.showToast(`Gagal memulihkan database: ${err.message}`, "error");
+      btnExecute.disabled = false;
+      btnExecute.textContent = "Mulai Pemulihan";
+    }
+  };
 
   UI.openModal(modalId);
-
-  try {
-    const insp = await API.inspectBackup(filename, { signal: restoreInspectAbortCtrl.signal });
-
-    // 1. Ringkasan File & Integritas
-    const isIntegrityOK = insp.integrity_status === "ok";
-    const schemaUnsupported = Boolean(insp.differences && insp.differences.schema_unsupported);
-    summaryContainer.innerHTML = `
-      <div style="background-color: var(--bg-muted); padding: 12px; border-radius: var(--radius-sm); font-size: 13px;">
-        <div style="display: grid; grid-template-columns: 140px 1fr; row-gap: 6px; column-gap: 8px;">
-          <span style="color: var(--text-muted); font-weight: 500;">Nama Berkas:</span>
-          <span style="font-weight: 700;">${UI.escapeHTML(insp.filename || "")} (${UI.escapeHTML(insp.formatted_size || "")})</span>
-          <span style="color: var(--text-muted); font-weight: 500;">Tanggal Dibuat:</span>
-          <span>${UI.formatDateTimeID(insp.created_at)}</span>
-          <span style="color: var(--text-muted); font-weight: 500;">Versi Skema:</span>
-          <span><span class="badge ${schemaUnsupported ? 'badge-priority-critical' : 'badge-status-in_progress'}">v${insp.schema_version || 0}</span> (Aplikasi mendukung hingga v6)</span>
-          <span style="color: var(--text-muted); font-weight: 500;">Uji Integritas:</span>
-          <span style="font-weight: 600; color: ${isIntegrityOK ? 'var(--success)' : 'var(--danger)'};">
-            ${isIntegrityOK ? 'Lolos Uji Integritas SQLite (OK)' : UI.escapeHTML(insp.integrity_status || "Tidak Valid")}
-          </span>
-        </div>
-      </div>
-    `;
-
-    // 2. Peringatan & Risiko
-    if (insp.warnings && insp.warnings.length > 0) {
-      const warnList = insp.warnings.map(w => `<li>${UI.escapeHTML(w)}</li>`).join("");
-      const isCritical = schemaUnsupported || !isIntegrityOK;
-      const bgColor = isCritical ? "#fef2f2" : "#fffbeb";
-      const borderColor = isCritical ? "#fecaca" : "#fef3c7";
-      const textColor = isCritical ? "#991b1b" : "#92400e";
-
-      warningsContainer.innerHTML = `
-        <div style="background-color: ${bgColor}; border: 1px solid ${borderColor}; color: ${textColor}; padding: 12px; border-radius: var(--radius-sm); font-size: 12.5px;">
-          <div style="font-weight: 700; margin-bottom: 6px;">Catatan Keamanan & Dampak:</div>
-          <ul style="margin: 0; padding-left: 20px;">${warnList}</ul>
-        </div>
-      `;
-    } else {
-      warningsContainer.innerHTML = `
-        <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; padding: 10px; border-radius: var(--radius-sm); font-size: 12.5px;">
-          File cadangan kompatibel dan siap untuk dipulihkan secara aman.
-        </div>
-      `;
-    }
-
-    // 3. Tabel Perbandingan Dampak Data (dengan akses aman default jika data_summary kosong)
-    const backupData = insp.data_summary || {};
-    const activeData = insp.active_database_summary || {};
-
-    const entities = [
-      { label: "Pekerjaan Kepatuhan", backup: backupData.work_items_count ?? 0, active: activeData.work_items_count ?? 0 },
-      { label: "Riwayat Aktivitas (Log)", backup: backupData.activity_logs_count ?? 0, active: activeData.activity_logs_count ?? 0 },
-      { label: "Template Pekerjaan", backup: backupData.templates_count ?? 0, active: activeData.templates_count ?? 0 },
-      { label: "Jadwal Berulang", backup: backupData.recurring_schedules_count ?? 0, active: activeData.recurring_schedules_count ?? 0 },
-      { label: "Master Kategori", backup: backupData.categories_count ?? 0, active: activeData.categories_count ?? 0 },
-      { label: "Riwayat Impor Data", backup: backupData.import_batches_count ?? 0, active: activeData.import_batches_count ?? 0 }
-    ];
-
-    tableBody.innerHTML = "";
-    entities.forEach(ent => {
-      const diff = ent.backup - ent.active;
-      let impactText = "Tidak ada selisih";
-      let impactColor = "var(--text-muted)";
-      if (diff < 0) {
-        impactText = `Berkurang ${Math.abs(diff)} rekaman`;
-        impactColor = "var(--danger)";
-      } else if (diff > 0) {
-        impactText = `Bertambah ${diff} rekaman`;
-        impactColor = "var(--success)";
-      }
-
-      const tr = document.createElement("tr");
-      tr.innerHTML = `
-        <td style="font-weight: 600;">${ent.label}</td>
-        <td style="text-align: center;">${ent.backup}</td>
-        <td style="text-align: center;">${ent.active}</td>
-        <td style="color: ${impactColor}; font-weight: 600;">${impactText}</td>
-      `;
-      tableBody.appendChild(tr);
-    });
-
-    // 4. Kesiapan Tindakan
-    if (!insp.is_compatible) {
-      ackCheck.disabled = true;
-      btnExecute.disabled = true;
-      btnExecute.textContent = "Tidak Kompatibel";
-    } else {
-      ackCheck.disabled = false;
-      ackCheck.onchange = () => {
-        btnExecute.disabled = !ackCheck.checked;
-      };
-
-      btnExecute.onclick = async () => {
-        if (!ackCheck.checked) return;
-        btnExecute.disabled = true;
-        btnExecute.textContent = "Memulihkan Database...";
-        try {
-          const res = await API.restoreBackup(filename);
-          UI.showToast(res.message || "Database berhasil dipulihkan", "success");
-          UI.closeModal(modalId);
-          await loadWorkItems();
-          await loadBackups();
-        } catch (err) {
-          UI.showToast(`Gagal memulihkan database: ${err.message}`, "error");
-          btnExecute.disabled = false;
-          btnExecute.textContent = "Mulai Pemulihan";
-        }
-      };
-    }
-  } catch (err) {
-    if (err.name === "AbortError" && restoreInspectAbortCtrl?.signal?.aborted) return;
-    // Error state: hentikan spinner pada kedua panel, tampilkan pesan error, matikan kontrol
-    summaryContainer.innerHTML = `
-      <div style="color: var(--danger); background-color: #fef2f2; border: 1px solid #fecaca; padding: 12px; border-radius: var(--radius-sm); font-size: 13px;">
-        <div style="font-weight: 700; margin-bottom: 4px;">Gagal Menginspeksi Cadangan:</div>
-        <div>${UI.escapeHTML(err.message || "Terjadi kesalahan saat memeriksa berkas")}</div>
-        <div style="margin-top: 10px;">
-          <button type="button" class="btn btn-secondary btn-sm" id="btnRetryInspectBackup">Coba Lagi</button>
-        </div>
-      </div>
-    `;
-    const btnRetry = document.getElementById("btnRetryInspectBackup");
-    if (btnRetry) {
-      btnRetry.onclick = () => openRestoreInspectionModal(filename);
-    }
-    warningsContainer.innerHTML = "";
-    tableBody.innerHTML = `
-      <tr>
-        <td colspan="4" class="empty-state" style="color: var(--danger);">
-          Gagal menganalisis data perbandingan cadangan.
-        </td>
-      </tr>
-    `;
-    ackCheck.disabled = true;
-    ackCheck.checked = false;
-    btnExecute.disabled = true;
-    btnExecute.textContent = "Inspeksi Gagal";
-  } finally {
-    restoreInspectAbortCtrl = null;
-  }
 }
 
 // -------------------------------------------------------------

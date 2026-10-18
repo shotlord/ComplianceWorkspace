@@ -3,6 +3,9 @@
 # UAT and archived test data
 /uat/
 /uat-backup-before-release-*/
+/temp-smoke-*/
+/temp-fresh-*/
+/temp-portability-sandbox-*/
 
 # Generated release packages
 /release/
@@ -21,16 +24,18 @@
 # Executables and archives
 *.exe
 *.zip
+*.syso
 
-
-# Temporary test directories
-/temp-portability-sandbox-*/
+# AI instructions and internal planning/checklist documents
+AGENTS.md
+docs/implementation_plan_*.md
+docs/UAT_CHECKLIST_*.md
 
 # Logs and temporary files
 *.log
 *.tmp
 
-# Credentials
+# Credentials and sensitive files
 .env
 .env.*
 !.env.example
@@ -39,10 +44,10 @@
 *.p12
 *.pfx
 
-# Operating system
+# Operating system artifacts
 Thumbs.db
 .DS_Store
 
-# Editor files
+# Editor and IDE configurations
 .vscode/
 .idea/
