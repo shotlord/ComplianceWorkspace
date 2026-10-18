@@ -195,6 +195,29 @@ func (r *SubtaskRepository) CountAndCompletedCountTx(ctx context.Context, tx *sq
 	return total, completed, nil
 }
 
+// CountByWorkItemID menghitung jumlah subtask untuk suatu pekerjaan
+func (r *SubtaskRepository) CountByWorkItemID(ctx context.Context, workItemID int64) (int, error) {
+	var count int
+	err := r.getDB().QueryRowContext(ctx, "SELECT COUNT(*) FROM subtasks WHERE work_item_id = ?;", workItemID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("gagal menghitung subtask pekerjaan %d: %w", workItemID, err)
+	}
+	return count, nil
+}
+
+// DeleteAllByWorkItemIDTx menghapus seluruh subtask untuk pekerjaan tertentu di dalam transaksi
+func (r *SubtaskRepository) DeleteAllByWorkItemIDTx(ctx context.Context, tx *sql.Tx, workItemID int64) (int, error) {
+	res, err := tx.ExecContext(ctx, "DELETE FROM subtasks WHERE work_item_id = ?;", workItemID)
+	if err != nil {
+		return 0, fmt.Errorf("gagal menghapus subtasks pekerjaan: %w", err)
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	return int(rows), nil
+}
+
 func scanSubtask(scanner rowScanner) (*domain.Subtask, error) {
 	var sub domain.Subtask
 	var isComp int

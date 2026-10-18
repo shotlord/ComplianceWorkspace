@@ -19,7 +19,7 @@ import (
 )
 
 // MaxSupportedSchemaVersion adalah versi skema database maksimum yang didukung oleh aplikasi ini (v1.1.0)
-const MaxSupportedSchemaVersion = 5
+const MaxSupportedSchemaVersion = 6
 
 //go:embed migrations/*.sql
 var migrationFS embed.FS

@@ -113,6 +113,8 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/work-items/{id}", s.handleUpdateWorkItem)
 	mux.HandleFunc("POST /api/work-items/{id}/archive", s.handleArchiveWorkItem)
 	mux.HandleFunc("POST /api/work-items/{id}/restore", s.handleRestoreWorkItem)
+	mux.HandleFunc("GET /api/work-items/{id}/delete-preview", s.handleGetWorkItemDeletePreview)
+	mux.HandleFunc("DELETE /api/work-items/{id}", s.handlePermanentDeleteWorkItem)
 
 	// Endpoint Activity Log
 	mux.HandleFunc("POST /api/work-items/{id}/activities", s.handleAddActivity)
@@ -153,6 +155,13 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 		mux.HandleFunc("GET /api/backups", s.handleListBackups)
 		mux.HandleFunc("POST /api/backups", s.handleCreateBackup)
 		mux.HandleFunc("POST /api/backups/restore", s.handleRestoreBackup)
+		mux.HandleFunc("POST /api/backup/restore", s.handleRestoreBackup)
+		mux.HandleFunc("GET /api/backup/inspect", s.handleInspectBackup)
+		mux.HandleFunc("GET /api/backups/inspect", s.handleInspectBackup)
+		mux.HandleFunc("DELETE /api/backup/{filename}", s.handleDeleteBackup)
+		mux.HandleFunc("DELETE /api/backups/{filename}", s.handleDeleteBackup)
+		mux.HandleFunc("POST /api/backup/delete-batch", s.handleBatchDeleteBackups)
+		mux.HandleFunc("POST /api/backups/delete-batch", s.handleBatchDeleteBackups)
 	}
 
 	// Endpoint Ekspor CSV
@@ -468,3 +477,122 @@ func (s *Server) handleExportActivityLogs(w http.ResponseWriter, r *http.Request
 		log.Printf("[ERROR] Ekspor CSV log aktivitas gagal: %v", err)
 	}
 }
+
+func (s *Server) handleGetWorkItemDeletePreview(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil || id <= 0 {
+		errorResponse(w, http.StatusBadRequest, "ID pekerjaan tidak valid")
+		return
+	}
+
+	preview, err := s.workItemService.GetDeletePreview(r.Context(), id)
+	if err != nil {
+		if strings.Contains(err.Error(), "tidak ditemukan") {
+			errorResponse(w, http.StatusNotFound, err.Error())
+		} else {
+			errorResponse(w, http.StatusBadRequest, err.Error())
+		}
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, preview)
+}
+
+func (s *Server) handlePermanentDeleteWorkItem(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil || id <= 0 {
+		errorResponse(w, http.StatusBadRequest, "ID pekerjaan tidak valid")
+		return
+	}
+
+	var req struct {
+		ConfirmCode string `json:"confirm_code"`
+	}
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+	if req.ConfirmCode == "" {
+		req.ConfirmCode = r.URL.Query().Get("confirm_code")
+	}
+
+	deletedItem, err := s.workItemService.PermanentDeleteWorkItem(r.Context(), id, req.ConfirmCode)
+	if err != nil {
+		if strings.Contains(err.Error(), "tidak ditemukan") {
+			errorResponse(w, http.StatusNotFound, err.Error())
+		} else {
+			errorResponse(w, http.StatusBadRequest, err.Error())
+		}
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"message":   fmt.Sprintf("Pekerjaan '%s' (%s) berhasil dihapus secara permanen.", deletedItem.Title, deletedItem.WorkCode),
+		"work_code": deletedItem.WorkCode,
+	})
+}
+
+func (s *Server) handleInspectBackup(w http.ResponseWriter, r *http.Request) {
+	filename := r.URL.Query().Get("filename")
+	if strings.TrimSpace(filename) == "" {
+		errorResponse(w, http.StatusBadRequest, "Parameter filename wajib disertakan")
+		return
+	}
+
+	inspection, err := s.backupService.InspectBackup(r.Context(), filename)
+	if err != nil {
+		if strings.Contains(err.Error(), "tidak ditemukan") {
+			errorResponse(w, http.StatusNotFound, err.Error())
+		} else {
+			errorResponse(w, http.StatusBadRequest, err.Error())
+		}
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, inspection)
+}
+
+func (s *Server) handleDeleteBackup(w http.ResponseWriter, r *http.Request) {
+	filename := r.PathValue("filename")
+	if strings.TrimSpace(filename) == "" {
+		filename = r.URL.Query().Get("filename")
+	}
+	if strings.TrimSpace(filename) == "" {
+		errorResponse(w, http.StatusBadRequest, "Nama berkas cadangan wajib disertakan")
+		return
+	}
+
+	if err := s.backupService.DeleteBackup(r.Context(), filename); err != nil {
+		if strings.Contains(err.Error(), "tidak ditemukan") {
+			errorResponse(w, http.StatusNotFound, err.Error())
+		} else {
+			errorResponse(w, http.StatusBadRequest, err.Error())
+		}
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]string{
+		"message":  fmt.Sprintf("Berkas cadangan '%s' berhasil dihapus.", filename),
+		"filename": filename,
+	})
+}
+
+func (s *Server) handleBatchDeleteBackups(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Filenames []string `json:"filenames"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		errorResponse(w, http.StatusBadRequest, "Format JSON tidak valid")
+		return
+	}
+
+	result, err := s.backupService.DeleteBackups(r.Context(), req.Filenames)
+	if err != nil {
+		errorResponse(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, result)
+}
+

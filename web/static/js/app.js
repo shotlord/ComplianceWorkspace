@@ -811,6 +811,17 @@ function renderWorkRegister() {
     }
 
     btnGroup.append(btnDetail, btnEdit, btnArchive);
+
+    // Tombol Hapus Permanen (khusus untuk pekerjaan yang sudah diarsipkan)
+    if (item.archived_at) {
+      const btnDelete = document.createElement("button");
+      btnDelete.className = "btn btn-danger btn-sm";
+      btnDelete.textContent = "Hapus";
+      btnDelete.title = "Hapus permanen pekerjaan dari basis data";
+      btnDelete.addEventListener("click", () => openPermanentDeleteWorkModal(item.id));
+      btnGroup.appendChild(btnDelete);
+    }
+
     tdAction.appendChild(btnGroup);
 
     tr.append(tdCode, tdTitle, tdReq, tdReceived, tdDue, tdPriority, tdStatus, tdProgress, tdAction);
@@ -1089,6 +1100,16 @@ function setupModalListeners() {
   const btnCreateBackup = document.getElementById("btnCreateBackup");
   if (btnCreateBackup) {
     btnCreateBackup.addEventListener("click", handleCreateBackupClick);
+  }
+
+  const btnDeleteSelectedBackups = document.getElementById("btnDeleteSelectedBackups");
+  if (btnDeleteSelectedBackups) {
+    btnDeleteSelectedBackups.addEventListener("click", handleBatchDeleteBackups);
+  }
+
+  const checkAllBackups = document.getElementById("checkAllBackups");
+  if (checkAllBackups) {
+    checkAllBackups.addEventListener("change", handleToggleSelectAllBackups);
   }
 
   // Task Management Tab Switching
@@ -1797,6 +1818,69 @@ function confirmRestoreWork(item) {
   );
 }
 
+// Modal Hapus Permanen Pekerjaan (Tombstone dengan konfirmasi kode CMP)
+async function openPermanentDeleteWorkModal(id) {
+  const modalId = "modalPermanentDeleteWork";
+  const previewContainer = document.getElementById("deleteWorkPreviewInfo");
+  const codeLabel = document.getElementById("expectedDeleteWorkCode");
+  const confirmInput = document.getElementById("confirmDeleteWorkCode");
+  const btnExecute = document.getElementById("btnExecutePermanentDelete");
+
+  if (!previewContainer || !codeLabel || !confirmInput || !btnExecute) return;
+
+  confirmInput.value = "";
+  btnExecute.disabled = true;
+  previewContainer.innerHTML = '<div class="spinner"></div><div>Memuat pratinjau dampak penghapusan...</div>';
+  codeLabel.textContent = "Memuat...";
+
+  UI.openModal(modalId);
+
+  try {
+    const preview = await API.getWorkItemDeletePreview(id);
+    codeLabel.textContent = preview.work_code;
+
+    previewContainer.innerHTML = `
+      <div style="display: grid; grid-template-columns: 140px 1fr; row-gap: 6px; column-gap: 8px;">
+        <span style="color: var(--text-muted); font-weight: 500;">Kode Pekerjaan:</span>
+        <span style="font-weight: 700;">${preview.work_code}</span>
+        <span style="color: var(--text-muted); font-weight: 500;">Judul:</span>
+        <span style="font-weight: 600;">${UI.escapeHTML(preview.title)}</span>
+        <span style="color: var(--text-muted); font-weight: 500;">Kategori:</span>
+        <span>${UI.escapeHTML(preview.category)}</span>
+        <span style="color: var(--text-muted); font-weight: 500;">Pemberi Tugas:</span>
+        <span>${UI.escapeHTML(preview.requested_by)}</span>
+        <span style="color: var(--text-muted); font-weight: 500;">Subtask Dihapus:</span>
+        <span style="color: var(--danger); font-weight: 600;">${preview.subtask_count} checklist item</span>
+        <span style="color: var(--text-muted); font-weight: 500;">Audit Trail:</span>
+        <span style="color: var(--success); font-weight: 600;">${preview.activity_log_count} catatan log tetap dipertahankan</span>
+      </div>
+    `;
+
+    confirmInput.oninput = () => {
+      btnExecute.disabled = (confirmInput.value.trim() !== preview.work_code);
+    };
+
+    btnExecute.onclick = async () => {
+      if (confirmInput.value.trim() !== preview.work_code) return;
+      btnExecute.disabled = true;
+      btnExecute.textContent = "Menghapus...";
+      try {
+        const res = await API.permanentDeleteWorkItem(preview.id, preview.work_code);
+        UI.showToast(res.message || "Pekerjaan berhasil dihapus secara permanen.", "success");
+        UI.closeModal(modalId);
+        await loadWorkItems();
+      } catch (err) {
+        UI.showToast(`Gagal menghapus pekerjaan: ${err.message}`, "error");
+        btnExecute.disabled = false;
+        btnExecute.textContent = "Hapus Permanen";
+      }
+    };
+  } catch (err) {
+    previewContainer.innerHTML = `<div style="color: var(--danger);">Gagal memuat pratinjau: ${UI.escapeHTML(err.message)}</div>`;
+    codeLabel.textContent = "Error";
+  }
+}
+
 // Dialog Konfirmasi Reusable
 function showConfirmDialog(title, message, onConfirm) {
   document.getElementById("confirmDialogTitle").textContent = title;
@@ -1818,32 +1902,78 @@ function showConfirmDialog(title, message, onConfirm) {
 // -------------------------------------------------------------
 // 5. Modul Settings & Backup
 // -------------------------------------------------------------
+let selectedBackupFiles = new Set();
+
 function renderSettingsBackup() {
   loadBackups();
+}
+
+function updateBatchDeleteButton() {
+  const btn = document.getElementById("btnDeleteSelectedBackups");
+  const countSpan = document.getElementById("selectedBackupsCount");
+  if (countSpan) countSpan.textContent = selectedBackupFiles.size;
+  if (btn) {
+    btn.style.display = selectedBackupFiles.size > 0 ? "inline-flex" : "none";
+  }
+}
+
+function handleToggleSelectAllBackups(e) {
+  const checked = e.target.checked;
+  const checkboxes = document.querySelectorAll(".backup-checkbox");
+  selectedBackupFiles.clear();
+  checkboxes.forEach(cb => {
+    cb.checked = checked;
+    if (checked) {
+      selectedBackupFiles.add(cb.value);
+    }
+  });
+  updateBatchDeleteButton();
 }
 
 async function loadBackups() {
   const tbody = document.getElementById("backupListTableBody");
   if (!tbody) return;
-  tbody.innerHTML = '<tr><td colspan="5" class="empty-state"><div class="spinner"></div><div>Memuat daftar cadangan...</div></td></tr>';
+  selectedBackupFiles.clear();
+  updateBatchDeleteButton();
+  const checkAll = document.getElementById("checkAllBackups");
+  if (checkAll) checkAll.checked = false;
+
+  tbody.innerHTML = '<tr><td colspan="7" class="empty-state"><div class="spinner"></div><div>Memuat daftar cadangan...</div></td></tr>';
 
   try {
     const backups = await API.listBackups();
     renderBackupTable(tbody, backups);
   } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="5" class="empty-state" style="color: var(--danger);">Gagal memuat cadangan: ${err.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" class="empty-state" style="color: var(--danger);">Gagal memuat cadangan: ${UI.escapeHTML(err.message)}</td></tr>`;
   }
 }
 
 function renderBackupTable(tbody, backups) {
   tbody.innerHTML = "";
   if (!backups || backups.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="5" class="empty-state">Belum ada file cadangan. Klik "Buat Backup Sekarang" untuk membuat cadangan snapshot SQLite baru.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-state">Belum ada file cadangan. Klik "Buat Backup Sekarang" untuk membuat cadangan snapshot SQLite baru.</td></tr>';
     return;
   }
 
   backups.forEach(item => {
     const tr = document.createElement("tr");
+
+    // Checkbox seleksi
+    const tdCheck = document.createElement("td");
+    tdCheck.style.textAlign = "center";
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.className = "backup-checkbox";
+    cb.value = item.filename;
+    cb.addEventListener("change", () => {
+      if (cb.checked) {
+        selectedBackupFiles.add(item.filename);
+      } else {
+        selectedBackupFiles.delete(item.filename);
+      }
+      updateBatchDeleteButton();
+    });
+    tdCheck.appendChild(cb);
 
     // Nama File
     const tdName = document.createElement("td");
@@ -1851,6 +1981,14 @@ function renderBackupTable(tbody, backups) {
     nameSpan.className = "work-code-badge";
     nameSpan.textContent = item.filename;
     tdName.appendChild(nameSpan);
+
+    // Versi Skema
+    const tdSchema = document.createElement("td");
+    const schemaBadge = document.createElement("span");
+    const isUnsupported = (item.schema_version || 0) > 6;
+    schemaBadge.className = `badge ${isUnsupported ? "badge-priority-critical" : "badge-status-in_progress"}`;
+    schemaBadge.textContent = `v${item.schema_version || 0}`;
+    tdSchema.appendChild(schemaBadge);
 
     // Tanggal Dibuat
     const tdDate = document.createElement("td");
@@ -1863,21 +2001,40 @@ function renderBackupTable(tbody, backups) {
     // Integritas
     const tdStatus = document.createElement("td");
     const statusBadge = document.createElement("span");
-    statusBadge.className = "badge badge-status-completed";
-    const dot = document.createElement("span");
-    dot.className = "badge-dot";
-    statusBadge.append(dot, document.createTextNode("Terverifikasi"));
+    if (item.status === "valid") {
+      statusBadge.className = "badge badge-status-completed";
+      const dot = document.createElement("span");
+      dot.className = "badge-dot";
+      statusBadge.append(dot, document.createTextNode("Terverifikasi"));
+    } else {
+      statusBadge.className = "badge badge-priority-critical";
+      statusBadge.textContent = "Korup";
+    }
     tdStatus.appendChild(statusBadge);
 
-    // Aksi (Tombol Pulihkan)
+    // Aksi (Tombol Pulihkan & Tombol Hapus)
     const tdAction = document.createElement("td");
+    tdAction.style.whiteSpace = "nowrap";
+    const btnGroup = document.createElement("div");
+    btnGroup.style.display = "flex";
+    btnGroup.style.gap = "6px";
+
     const btnRestore = document.createElement("button");
     btnRestore.className = "btn btn-secondary btn-sm";
-    btnRestore.textContent = "Pulihkan Database";
-    btnRestore.addEventListener("click", () => confirmRestoreBackup(item.filename));
-    tdAction.appendChild(btnRestore);
+    btnRestore.textContent = "Pulihkan";
+    btnRestore.title = "Inspeksi dan pulihkan basis data dari cadangan ini";
+    btnRestore.addEventListener("click", () => openRestoreInspectionModal(item.filename));
 
-    tr.append(tdName, tdDate, tdSize, tdStatus, tdAction);
+    const btnDelete = document.createElement("button");
+    btnDelete.className = "btn btn-danger btn-sm";
+    btnDelete.textContent = "Hapus";
+    btnDelete.title = "Hapus file cadangan ini dari disk";
+    btnDelete.addEventListener("click", () => confirmDeleteBackup(item.filename));
+
+    btnGroup.append(btnRestore, btnDelete);
+    tdAction.appendChild(btnGroup);
+
+    tr.append(tdCheck, tdName, tdSchema, tdDate, tdSize, tdStatus, tdAction);
     tbody.appendChild(tr);
   });
 }
@@ -1901,21 +2058,170 @@ async function handleCreateBackupClick() {
   }
 }
 
-function confirmRestoreBackup(filename) {
+function confirmDeleteBackup(filename) {
   showConfirmDialog(
-    "Konfirmasi Pemulihan Database",
-    `PERINGATAN: Memulihkan database dari file cadangan "${filename}" akan menggantikan seluruh data database yang aktif saat ini. Salinan pengaman otomatis akan dibuat sebelum pemulihan. Apakah Anda yakin ingin memulihkan?`,
+    "Konfirmasi Hapus Cadangan",
+    `Apakah Anda yakin ingin menghapus berkas cadangan "${filename}"? Sistem akan menolak jika ini adalah satu-satunya berkas cadangan valid yang tersisa.`,
     async () => {
       try {
-        const res = await API.restoreBackup(filename);
-        UI.showToast(res.message || "Database berhasil dipulihkan", "success");
-        await loadWorkItems();
+        const res = await API.deleteBackup(filename);
+        UI.showToast(res.message || `Berkas cadangan ${filename} berhasil dihapus.`, "success");
         await loadBackups();
       } catch (err) {
-        UI.showToast(`Gagal memulihkan database: ${err.message}`, "error");
+        UI.showToast(`Gagal menghapus cadangan: ${err.message}`, "error");
       }
     }
   );
+}
+
+function handleBatchDeleteBackups() {
+  if (selectedBackupFiles.size === 0) return;
+  const count = selectedBackupFiles.size;
+  showConfirmDialog(
+    "Konfirmasi Hapus Sejumlah Cadangan",
+    `Apakah Anda yakin ingin menghapus ${count} berkas cadangan yang dipilih? Sistem mewajibkan setidaknya satu cadangan valid dipertahankan di disk.`,
+    async () => {
+      try {
+        const filenames = Array.from(selectedBackupFiles);
+        const res = await API.deleteBackupsBatch(filenames);
+        UI.showToast(`${res.deleted_count} berkas cadangan berhasil dihapus. Tersisa ${res.remaining_count} cadangan.`, "success");
+        await loadBackups();
+      } catch (err) {
+        UI.showToast(`Gagal menghapus sejumlah cadangan: ${err.message}`, "error");
+      }
+    }
+  );
+}
+
+// Pre-restore Inspection & Safe Restore Modal
+async function openRestoreInspectionModal(filename) {
+  const modalId = "modalRestoreConfirm";
+  const summaryContainer = document.getElementById("restoreInspectionSummary");
+  const warningsContainer = document.getElementById("restoreWarningsContainer");
+  const tableBody = document.getElementById("restoreComparisonTableBody");
+  const ackCheck = document.getElementById("checkAcknowledgeRestoreRisk");
+  const btnExecute = document.getElementById("btnExecuteRestore");
+
+  if (!summaryContainer || !warningsContainer || !tableBody || !ackCheck || !btnExecute) return;
+
+  ackCheck.checked = false;
+  ackCheck.disabled = true;
+  btnExecute.disabled = true;
+  btnExecute.textContent = "Mulai Pemulihan";
+
+  summaryContainer.innerHTML = '<div class="spinner"></div><div>Melakukan inspeksi mendalam pada berkas cadangan...</div>';
+  warningsContainer.innerHTML = "";
+  tableBody.innerHTML = '<tr><td colspan="4" class="empty-state">Menganalisis perbandingan data...</td></tr>';
+
+  UI.openModal(modalId);
+
+  try {
+    const insp = await API.inspectBackup(filename);
+
+    // 1. Ringkasan File & Integritas
+    const isIntegrityOK = insp.integrity_status === "ok";
+    summaryContainer.innerHTML = `
+      <div style="background-color: var(--bg-muted); padding: 12px; border-radius: var(--radius-sm); font-size: 13px;">
+        <div style="display: grid; grid-template-columns: 140px 1fr; row-gap: 6px; column-gap: 8px;">
+          <span style="color: var(--text-muted); font-weight: 500;">Nama Berkas:</span>
+          <span style="font-weight: 700;">${insp.filename} (${insp.formatted_size})</span>
+          <span style="color: var(--text-muted); font-weight: 500;">Tanggal Dibuat:</span>
+          <span>${UI.formatDateTimeID(insp.created_at)}</span>
+          <span style="color: var(--text-muted); font-weight: 500;">Versi Skema:</span>
+          <span><span class="badge ${insp.differences.schema_unsupported ? 'badge-priority-critical' : 'badge-status-in_progress'}">v${insp.schema_version}</span> (Aplikasi mendukung hingga v6)</span>
+          <span style="color: var(--text-muted); font-weight: 500;">Uji Integritas:</span>
+          <span style="font-weight: 600; color: ${isIntegrityOK ? 'var(--success)' : 'var(--danger)'};">
+            ${isIntegrityOK ? 'Lolos Uji Integritas SQLite (OK)' : UI.escapeHTML(insp.integrity_status)}
+          </span>
+        </div>
+      </div>
+    `;
+
+    // 2. Peringatan & Risiko
+    if (insp.warnings && insp.warnings.length > 0) {
+      const warnList = insp.warnings.map(w => `<li>${UI.escapeHTML(w)}</li>`).join("");
+      const bgColor = insp.differences.schema_unsupported || !isIntegrityOK ? "#fef2f2" : "#fffbeb";
+      const borderColor = insp.differences.schema_unsupported || !isIntegrityOK ? "#fecaca" : "#fef3c7";
+      const textColor = insp.differences.schema_unsupported || !isIntegrityOK ? "#991b1b" : "#92400e";
+
+      warningsContainer.innerHTML = `
+        <div style="background-color: ${bgColor}; border: 1px solid ${borderColor}; color: ${textColor}; padding: 12px; border-radius: var(--radius-sm); font-size: 12.5px;">
+          <div style="font-weight: 700; margin-bottom: 6px;">Catatan Keamanan & Dampak:</div>
+          <ul style="margin: 0; padding-left: 20px;">${warnList}</ul>
+        </div>
+      `;
+    } else {
+      warningsContainer.innerHTML = `
+        <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; padding: 10px; border-radius: var(--radius-sm); font-size: 12.5px;">
+          File cadangan kompatibel dan siap untuk dipulihkan secara aman.
+        </div>
+      `;
+    }
+
+    // 3. Tabel Perbandingan Dampak Data
+    const entities = [
+      { label: "Pekerjaan Kepatuhan", backup: insp.data_summary.work_items_count, active: insp.active_database_summary.work_items_count },
+      { label: "Riwayat Aktivitas (Log)", backup: insp.data_summary.activity_logs_count, active: insp.active_database_summary.activity_logs_count },
+      { label: "Template Pekerjaan", backup: insp.data_summary.templates_count, active: insp.active_database_summary.templates_count },
+      { label: "Jadwal Berulang", backup: insp.data_summary.recurring_schedules_count, active: insp.active_database_summary.recurring_schedules_count },
+      { label: "Master Kategori", backup: insp.data_summary.categories_count, active: insp.active_database_summary.categories_count },
+      { label: "Riwayat Impor Data", backup: insp.data_summary.import_batches_count, active: insp.active_database_summary.import_batches_count }
+    ];
+
+    tableBody.innerHTML = "";
+    entities.forEach(ent => {
+      const diff = ent.backup - ent.active;
+      let impactText = "Tidak ada selisih";
+      let impactColor = "var(--text-muted)";
+      if (diff < 0) {
+        impactText = `Berkurang ${Math.abs(diff)} rekaman`;
+        impactColor = "var(--danger)";
+      } else if (diff > 0) {
+        impactText = `Bertambah ${diff} rekaman`;
+        impactColor = "var(--success)";
+      }
+
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td style="font-weight: 600;">${ent.label}</td>
+        <td style="text-align: center;">${ent.backup}</td>
+        <td style="text-align: center;">${ent.active}</td>
+        <td style="color: ${impactColor}; font-weight: 600;">${impactText}</td>
+      `;
+      tableBody.appendChild(tr);
+    });
+
+    // 4. Kesiapan Tindakan
+    if (!insp.is_compatible) {
+      ackCheck.disabled = true;
+      btnExecute.disabled = true;
+      btnExecute.textContent = "Tidak Kompatibel";
+    } else {
+      ackCheck.disabled = false;
+      ackCheck.onchange = () => {
+        btnExecute.disabled = !ackCheck.checked;
+      };
+
+      btnExecute.onclick = async () => {
+        if (!ackCheck.checked) return;
+        btnExecute.disabled = true;
+        btnExecute.textContent = "Memulihkan Database...";
+        try {
+          const res = await API.restoreBackup(filename);
+          UI.showToast(res.message || "Database berhasil dipulihkan", "success");
+          UI.closeModal(modalId);
+          await loadWorkItems();
+          await loadBackups();
+        } catch (err) {
+          UI.showToast(`Gagal memulihkan database: ${err.message}`, "error");
+          btnExecute.disabled = false;
+          btnExecute.textContent = "Mulai Pemulihan";
+        }
+      };
+    }
+  } catch (err) {
+    summaryContainer.innerHTML = `<div style="color: var(--danger);">Gagal menginspeksi cadangan: ${UI.escapeHTML(err.message)}</div>`;
+  }
 }
 
 // -------------------------------------------------------------

@@ -175,30 +175,47 @@ func (r *WorkItemRepository) UpdateProgressTx(ctx context.Context, tx *sql.Tx, i
 	return nil
 }
 
-// GetByID mengambil satu pekerjaan berdasarkan ID
+// GetByID mengambil satu pekerjaan berdasarkan ID yang belum dihapus permanen
 func (r *WorkItemRepository) GetByID(ctx context.Context, id int64) (*domain.WorkItem, error) {
 	query := `
 		SELECT
 			id, work_code, title, description, category, requested_by,
 			received_on, due_on, priority, status, progress_percentage, completed_at,
-			created_at, updated_at, archived_at,
+			created_at, updated_at, archived_at, deleted_at,
 			(SELECT COUNT(*) FROM subtasks WHERE work_item_id = work_items.id) AS subtask_count,
 			(SELECT COUNT(*) FROM subtasks WHERE work_item_id = work_items.id AND is_completed = 1) AS completed_subtask_count,
 			work_items.provenance
 		FROM work_items
-		WHERE id = ?
+		WHERE id = ? AND deleted_at IS NULL
 	`
 	row := r.getDB().QueryRowContext(ctx, query, id)
 	return scanWorkItem(row)
 }
 
-// GetByIDTx mengambil satu pekerjaan di dalam transaksi
+// GetByIDTx mengambil satu pekerjaan di dalam transaksi yang belum dihapus permanen
 func (r *WorkItemRepository) GetByIDTx(ctx context.Context, tx *sql.Tx, id int64) (*domain.WorkItem, error) {
 	query := `
 		SELECT
 			id, work_code, title, description, category, requested_by,
 			received_on, due_on, priority, status, progress_percentage, completed_at,
-			created_at, updated_at, archived_at,
+			created_at, updated_at, archived_at, deleted_at,
+			(SELECT COUNT(*) FROM subtasks WHERE work_item_id = work_items.id) AS subtask_count,
+			(SELECT COUNT(*) FROM subtasks WHERE work_item_id = work_items.id AND is_completed = 1) AS completed_subtask_count,
+			work_items.provenance
+		FROM work_items
+		WHERE id = ? AND deleted_at IS NULL
+	`
+	row := tx.QueryRowContext(ctx, query, id)
+	return scanWorkItem(row)
+}
+
+// GetByIDIncludingDeletedTx mengambil satu pekerjaan di dalam transaksi tanpa memfilter deleted_at
+func (r *WorkItemRepository) GetByIDIncludingDeletedTx(ctx context.Context, tx *sql.Tx, id int64) (*domain.WorkItem, error) {
+	query := `
+		SELECT
+			id, work_code, title, description, category, requested_by,
+			received_on, due_on, priority, status, progress_percentage, completed_at,
+			created_at, updated_at, archived_at, deleted_at,
 			(SELECT COUNT(*) FROM subtasks WHERE work_item_id = work_items.id) AS subtask_count,
 			(SELECT COUNT(*) FROM subtasks WHERE work_item_id = work_items.id AND is_completed = 1) AS completed_subtask_count,
 			work_items.provenance
@@ -209,10 +226,31 @@ func (r *WorkItemRepository) GetByIDTx(ctx context.Context, tx *sql.Tx, id int64
 	return scanWorkItem(row)
 }
 
+// PermanentDeleteTx menandai pekerjaan sebagai terhapus permanen (tombstone) di dalam transaksi
+func (r *WorkItemRepository) PermanentDeleteTx(ctx context.Context, tx *sql.Tx, id int64) error {
+	nowStr := time.Now().UTC().Format(time.RFC3339Nano)
+	query := `UPDATE work_items SET deleted_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL`
+	res, err := tx.ExecContext(ctx, query, nowStr, nowStr, id)
+	if err != nil {
+		return fmt.Errorf("gagal menghapus permanen pekerjaan: %w", err)
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return fmt.Errorf("pekerjaan dengan ID %d tidak ditemukan atau sudah terhapus", id)
+	}
+	return nil
+}
+
 // List mengambil daftar pekerjaan berdasarkan filter
 func (r *WorkItemRepository) List(ctx context.Context, filter WorkItemFilter) ([]*domain.WorkItem, error) {
 	var conditions []string
 	var args []interface{}
+
+	// Filter agar pekerjaan yang sudah dihapus permanen (tombstone) tidak pernah muncul
+	conditions = append(conditions, "deleted_at IS NULL")
 
 	if !filter.IncludeArchived {
 		conditions = append(conditions, "archived_at IS NULL")
@@ -272,7 +310,7 @@ func (r *WorkItemRepository) List(ctx context.Context, filter WorkItemFilter) ([
 		SELECT
 			id, work_code, title, description, category, requested_by,
 			received_on, due_on, priority, status, progress_percentage, completed_at,
-			created_at, updated_at, archived_at,
+			created_at, updated_at, archived_at, deleted_at,
 			(SELECT COUNT(*) FROM subtasks WHERE work_item_id = work_items.id) AS subtask_count,
 			(SELECT COUNT(*) FROM subtasks WHERE work_item_id = work_items.id AND is_completed = 1) AS completed_subtask_count,
 			work_items.provenance
@@ -311,7 +349,7 @@ func scanWorkItem(scanner rowScanner) (*domain.WorkItem, error) {
 	var item domain.WorkItem
 	var workCode, requestedBy sql.NullString
 	var dueOn sql.NullString
-	var completedAtStr, createdAtStr, updatedAtStr, archivedAtStr sql.NullString
+	var completedAtStr, createdAtStr, updatedAtStr, archivedAtStr, deletedAtStr sql.NullString
 	var provenance sql.NullString
 
 	err := scanner.Scan(
@@ -330,6 +368,7 @@ func scanWorkItem(scanner rowScanner) (*domain.WorkItem, error) {
 		&createdAtStr,
 		&updatedAtStr,
 		&archivedAtStr,
+		&deletedAtStr,
 		&item.SubtaskCount,
 		&item.CompletedSubtaskCount,
 		&provenance,
@@ -381,6 +420,14 @@ func scanWorkItem(scanner rowScanner) (*domain.WorkItem, error) {
 		if err == nil {
 			tUTC := t.UTC()
 			item.ArchivedAt = &tUTC
+		}
+	}
+
+	if deletedAtStr.Valid {
+		t, err := time.Parse(time.RFC3339Nano, deletedAtStr.String)
+		if err == nil {
+			tUTC := t.UTC()
+			item.DeletedAt = &tUTC
 		}
 	}
 

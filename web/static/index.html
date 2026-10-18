@@ -601,11 +601,26 @@
                   <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">
                     Snapshot database dibuat secara atomik menggunakan perintah SQLite <code>VACUUM INTO</code> ke folder <code>backups/</code> dan diverifikasi integritasnya sebelum dicatat.
                   </p>
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap: 8px;">
+                    <div style="display: flex; gap: 8px; align-items: center;">
+                      <button type="button" id="btnDeleteSelectedBackups" class="btn btn-danger btn-sm" style="display: none;">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <polyline points="3 6 5 6 21 6"></polyline>
+                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                        </svg>
+                        Hapus yang Dipilih (<span id="selectedBackupsCount">0</span>)
+                      </button>
+                    </div>
+                  </div>
                   <div class="table-responsive">
                     <table class="data-table">
                       <thead>
                         <tr>
+                          <th style="width: 38px; text-align: center;">
+                            <input type="checkbox" id="checkAllBackups" title="Pilih Semua Cadangan">
+                          </th>
                           <th>Nama File Cadangan</th>
+                          <th>Versi Skema</th>
                           <th>Tanggal Pembuatan</th>
                           <th>Ukuran File</th>
                           <th>Integritas</th>
@@ -613,7 +628,7 @@
                         </tr>
                       </thead>
                       <tbody id="backupListTableBody">
-                        <tr><td colspan="5" class="empty-state">Memuat daftar cadangan...</td></tr>
+                        <tr><td colspan="7" class="empty-state">Memuat daftar cadangan...</td></tr>
                       </tbody>
                     </table>
                   </div>
@@ -1394,6 +1409,95 @@
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-close-modal="modalConfirm">Batal</button>
         <button type="button" id="btnConfirmAction" class="btn btn-primary">Lanjutkan</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Hapus Permanen Pekerjaan -->
+  <div class="modal-overlay" id="modalPermanentDeleteWork">
+    <div class="modal-card" style="max-width: 540px;">
+      <div class="modal-header" style="border-bottom-color: var(--danger, #dc2626);">
+        <div class="modal-title" style="color: var(--danger, #dc2626); display: flex; align-items: center; gap: 8px;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+            <line x1="12" y1="9" x2="12" y2="13"/>
+            <line x1="12" y1="17" x2="12.01" y2="17"/>
+          </svg>
+          Hapus Permanen Pekerjaan
+        </div>
+        <button class="modal-close" data-close-modal="modalPermanentDeleteWork" aria-label="Tutup">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="alert alert-danger" style="margin-bottom: 16px; font-size: 13px; line-height: 1.5; background-color: #fef2f2; border: 1px solid #fecaca; color: #991b1b; padding: 12px; border-radius: var(--radius-sm);">
+          <strong>PERHATIAN:</strong> Tindakan ini permanen dan tidak dapat dibatalkan. Riwayat aktivitas (audit trail) akan tetap dipertahankan untuk kebutuhan audit, namun data pekerjaan dan subtask terkait akan dihapus secara permanen.
+        </div>
+        <div id="deleteWorkPreviewInfo" style="background-color: var(--bg-muted); padding: 14px; border-radius: var(--radius-sm); margin-bottom: 16px; font-size: 13px;">
+          <!-- Diisi via JS -->
+        </div>
+        <div class="form-group">
+          <label for="confirmDeleteWorkCode" style="font-weight: 600; font-size: 13px;">
+            Ketik kode pekerjaan <code id="expectedDeleteWorkCode">CMP-...</code> untuk konfirmasi:
+          </label>
+          <input type="text" id="confirmDeleteWorkCode" class="form-control" placeholder="Ketik kode pekerjaan persis sama..." autocomplete="off">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-close-modal="modalPermanentDeleteWork">Batal</button>
+        <button type="button" id="btnExecutePermanentDelete" class="btn btn-danger" disabled>
+          Hapus Permanen
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Inspeksi dan Konfirmasi Pemulihan Database -->
+  <div class="modal-overlay" id="modalRestoreConfirm">
+    <div class="modal-card" style="max-width: 680px;">
+      <div class="modal-header">
+        <div class="modal-title" style="display: flex; align-items: center; gap: 8px;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="1 4 1 10 7 10"/>
+            <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>
+          </svg>
+          Inspeksi & Pemulihan Basis Data
+        </div>
+        <button class="modal-close" data-close-modal="modalRestoreConfirm" aria-label="Tutup">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div id="restoreInspectionSummary" style="margin-bottom: 16px;">
+          <!-- Diisi via JS: Informasi file, integritas, versi skema -->
+        </div>
+        <div id="restoreWarningsContainer" style="margin-bottom: 16px;">
+          <!-- Peringatan risiko kehilangan data & skema -->
+        </div>
+        <h4 style="font-size: 13.5px; font-weight: 600; margin-bottom: 8px;">Perbandingan Data Cadangan vs Data Aktif:</h4>
+        <div class="table-responsive" style="margin-bottom: 16px;">
+          <table class="data-table" style="font-size: 12.5px;">
+            <thead>
+              <tr>
+                <th>Entitas Data</th>
+                <th>File Cadangan</th>
+                <th>Database Aktif Saat Ini</th>
+                <th>Dampak</th>
+              </tr>
+            </thead>
+            <tbody id="restoreComparisonTableBody">
+              <!-- Diisi via JS -->
+            </tbody>
+          </table>
+        </div>
+        <div id="restoreAcknowledgmentSection" style="background-color: #fffbeb; border: 1px solid #fef3c7; padding: 12px; border-radius: var(--radius-sm); font-size: 13px;">
+          <label style="display: flex; align-items: flex-start; gap: 8px; cursor: pointer; margin-bottom: 0;">
+            <input type="checkbox" id="checkAcknowledgeRestoreRisk" style="margin-top: 3px;">
+            <span>Saya memahami bahwa pemulihan ini akan menimpa basis data aktif dan tidak dapat dibatalkan (salinan pengaman otomatis akan dibuat).</span>
+          </label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-close-modal="modalRestoreConfirm">Batal</button>
+        <button type="button" id="btnExecuteRestore" class="btn btn-primary" disabled>
+          Mulai Pemulihan
+        </button>
       </div>
     </div>
   </div>

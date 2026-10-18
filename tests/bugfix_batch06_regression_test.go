@@ -635,8 +635,8 @@ func TestMigration005_ProvenanceBackfill(t *testing.T) {
 	// Periksa versi skema
 	var maxVersion int
 	_ = db.QueryRow("SELECT MAX(version) FROM schema_migrations").Scan(&maxVersion)
-	if maxVersion != 5 {
-		t.Fatalf("Versi skema harus 5, didapat: %d", maxVersion)
+	if maxVersion < 5 {
+		t.Fatalf("Versi skema harus minimal 5, didapat: %d", maxVersion)
 	}
 
 	// Verifikasi hasil backfill provenance

@@ -444,3 +444,96 @@ func (s *WorkItemService) ListActivities(ctx context.Context, workItemID int64) 
 	}
 	return s.activityRepo.ListByWorkItemID(ctx, workItemID)
 }
+
+// GetDeletePreview mengambil ringkasan dampak penghapusan permanen pekerjaan
+func (s *WorkItemService) GetDeletePreview(ctx context.Context, id int64) (*domain.WorkItemDeletePreview, error) {
+	item, err := s.workRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("pekerjaan tidak ditemukan: %w", err)
+	}
+
+	if item.ArchivedAt == nil {
+		return nil, errors.New("pekerjaan harus diarsipkan terlebih dahulu sebelum dapat dihapus permanen")
+	}
+
+	logCount, err := s.activityRepo.CountByWorkItemID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	preview := &domain.WorkItemDeletePreview{
+		ID:               item.ID,
+		WorkCode:         item.WorkCode,
+		Title:            item.Title,
+		Description:      item.Description,
+		Category:         item.Category,
+		RequestedBy:      item.RequestedBy,
+		ReceivedOn:       item.ReceivedOn,
+		DueOn:            item.DueOn,
+		Priority:         item.Priority,
+		Status:           item.Status,
+		SubtaskCount:     item.SubtaskCount,
+		ActivityLogCount: logCount,
+		WarningMessage:   "Tindakan ini bersifat permanen dan tidak dapat dibatalkan. Riwayat aktivitas akan dipertahankan untuk kebutuhan audit trail, tetapi rekaman pekerjaan dan subtask akan dihapus secara permanen.",
+	}
+
+	return preview, nil
+}
+
+// PermanentDeleteWorkItem mengeksekusi penghapusan permanen pekerjaan (tombstone) dengan konfirmasi kode CMP
+func (s *WorkItemService) PermanentDeleteWorkItem(ctx context.Context, id int64, confirmCode string) (*domain.WorkItem, error) {
+	confirmCode = strings.TrimSpace(confirmCode)
+	if confirmCode == "" {
+		return nil, errors.New("kode konfirmasi pekerjaan wajib diisi")
+	}
+
+	now := time.Now().UTC()
+
+	tx, err := s.GetDB().BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("gagal memulai transaksi: %w", err)
+	}
+	defer tx.Rollback()
+
+	item, err := s.workRepo.GetByIDTx(ctx, tx, id)
+	if err != nil {
+		return nil, fmt.Errorf("pekerjaan tidak ditemukan: %w", err)
+	}
+
+	if item.ArchivedAt == nil {
+		return nil, errors.New("pekerjaan harus diarsipkan terlebih dahulu sebelum dapat dihapus permanen")
+	}
+
+	if confirmCode != item.WorkCode {
+		return nil, fmt.Errorf("kode konfirmasi tidak cocok: diharapkan %s tetapi menerima %s", item.WorkCode, confirmCode)
+	}
+
+	// Hapus subtasks/checklist terkait
+	if _, err := tx.ExecContext(ctx, "DELETE FROM subtasks WHERE work_item_id = ?;", id); err != nil {
+		return nil, fmt.Errorf("gagal menghapus subtasks pekerjaan: %w", err)
+	}
+
+	// Tombstone pada tabel work_items
+	if err := s.workRepo.PermanentDeleteTx(ctx, tx, id); err != nil {
+		return nil, err
+	}
+
+	// Catat riwayat aktivitas append-only
+	log := &domain.ActivityLog{
+		WorkItemID:  item.ID,
+		EntryType:   domain.EntryTypeActivity,
+		Description: fmt.Sprintf("Pekerjaan dengan kode %s ('%s') dihapus secara permanen dari sistem", item.WorkCode, item.Title),
+		OccurredAt:  now,
+		RecordedAt:  now,
+	}
+	if err := s.activityRepo.CreateTx(ctx, tx, log); err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("gagal commit transaksi penghapusan permanen: %w", err)
+	}
+
+	item.DeletedAt = &now
+	return item, nil
+}

@@ -32,6 +32,7 @@ const (
 	EntryTypeStatusChanged = "status_changed"
 	EntryTypeArchived      = "archived"
 	EntryTypeRestored      = "restored"
+	EntryTypeDeleted       = "deleted"
 )
 
 // Asal/Provenance pekerjaan (v1.1.0 Batch 06)
@@ -73,6 +74,7 @@ type WorkItem struct {
 	CreatedAt             time.Time  `json:"created_at"`   // UTC RFC3339
 	UpdatedAt             time.Time  `json:"updated_at"`   // UTC RFC3339
 	ArchivedAt            *time.Time `json:"archived_at"`  // UTC RFC3339 opsional
+	DeletedAt             *time.Time `json:"deleted_at"`   // UTC RFC3339 opsional (tombstone)
 }
 
 // DefaultLocation mewakili zona waktu standar Asia/Jakarta (WIB)
@@ -660,3 +662,61 @@ func CalculateProgress(totalSubtasks, completedSubtasks int, status string) int 
 		return 0
 	}
 }
+
+// WorkItemDeletePreview mewakili pratinjau dampak penghapusan permanen pekerjaan
+type WorkItemDeletePreview struct {
+	ID               int64   `json:"id"`
+	WorkCode         string  `json:"work_code"`
+	Title            string  `json:"title"`
+	Description      string  `json:"description"`
+	Category         string  `json:"category"`
+	RequestedBy      string  `json:"requested_by"`
+	ReceivedOn       string  `json:"received_on"`
+	DueOn            *string `json:"due_on"`
+	Priority         string  `json:"priority"`
+	Status           string  `json:"status"`
+	SubtaskCount     int     `json:"subtask_count"`
+	ActivityLogCount int     `json:"activity_log_count"`
+	WarningMessage   string  `json:"warning_message"`
+}
+
+// DatabaseSummary mewakili ringkasan jumlah rekaman dalam suatu basis data
+type DatabaseSummary struct {
+	WorkItemsCount          int `json:"work_items_count"`
+	ActivityLogsCount       int `json:"activity_logs_count"`
+	TemplatesCount          int `json:"templates_count"`
+	RecurringSchedulesCount int `json:"recurring_schedules_count"`
+	CategoriesCount         int `json:"categories_count"`
+	ImportBatchesCount      int `json:"import_batches_count"`
+}
+
+// RestoreDifferences mewakili perbedaan antara cadangan dan basis data aktif
+type RestoreDifferences struct {
+	RecordsLostWarning    bool `json:"records_lost_warning"`
+	SchemaMigrationNeeded bool `json:"schema_migration_needed"`
+	SchemaUnsupported     bool `json:"schema_unsupported"`
+}
+
+// RestoreInspectionResult mewakili hasil inspeksi sebelum pemulihan cadangan
+type RestoreInspectionResult struct {
+	Filename              string             `json:"filename"`
+	SizeBytes             int64              `json:"size_bytes"`
+	FormattedSize         string             `json:"formatted_size"`
+	CreatedAt             time.Time          `json:"created_at"`
+	SchemaVersion         int                `json:"schema_version"`
+	IntegrityStatus       string             `json:"integrity_status"`
+	IsCompatible          bool               `json:"is_compatible"`
+	DataSummary           DatabaseSummary    `json:"data_summary"`
+	ActiveDatabaseSummary DatabaseSummary    `json:"active_database_summary"`
+	Differences           RestoreDifferences `json:"differences"`
+	Warnings              []string           `json:"warnings"`
+}
+
+// BatchDeleteBackupResult mewakili hasil penghapusan berkas cadangan sekaligus
+type BatchDeleteBackupResult struct {
+	DeletedCount   int      `json:"deleted_count"`
+	DeletedFiles   []string `json:"deleted_files"`
+	FailedFiles    []string `json:"failed_files"`
+	RemainingCount int      `json:"remaining_count"`
+}
+

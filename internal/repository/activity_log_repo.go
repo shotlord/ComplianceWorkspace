@@ -131,6 +131,17 @@ func (r *ActivityLogRepository) ListByWorkItemID(ctx context.Context, workItemID
 	return logs, nil
 }
 
+// CountByWorkItemID menghitung total entri log aktivitas untuk sebuah pekerjaan
+func (r *ActivityLogRepository) CountByWorkItemID(ctx context.Context, workItemID int64) (int, error) {
+	var count int
+	query := `SELECT COUNT(*) FROM activity_logs WHERE work_item_id = ?;`
+	err := r.getDB().QueryRowContext(ctx, query, workItemID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("gagal menghitung log aktivitas untuk pekerjaan %d: %w", workItemID, err)
+	}
+	return count, nil
+}
+
 // ListAllWithWorkInfo mengambil log aktivitas dengan join informasi kode & judul pekerjaan (untuk CSV export)
 func (r *ActivityLogRepository) ListAllWithWorkInfo(ctx context.Context, workItemID int64) ([]*ActivityLogWithWorkInfo, error) {
 	var query string

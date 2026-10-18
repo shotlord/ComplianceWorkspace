@@ -121,6 +121,13 @@ const API = (() => {
       method: "POST"
     }),
 
+    getWorkItemDeletePreview: (id) => request(`/api/work-items/${encodeURIComponent(id)}/delete-preview`),
+
+    permanentDeleteWorkItem: (id, confirmCode) => request(`/api/work-items/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      body: { confirm_code: confirmCode }
+    }),
+
     // Activity Log Endpoints
     listActivities: (workItemId) => request(`/api/work-items/${encodeURIComponent(workItemId)}/activities`),
 
@@ -136,9 +143,20 @@ const API = (() => {
       method: "POST"
     }),
 
+    inspectBackup: (filename) => request(`/api/backup/inspect?filename=${encodeURIComponent(filename)}`),
+
     restoreBackup: (filename) => request("/api/backups/restore", {
       method: "POST",
       body: { filename }
+    }),
+
+    deleteBackup: (filename) => request(`/api/backup/${encodeURIComponent(filename)}`, {
+      method: "DELETE"
+    }),
+
+    deleteBackupsBatch: (filenames) => request("/api/backup/delete-batch", {
+      method: "POST",
+      body: { filenames }
     }),
 
     // Subtask & Checklist Endpoints (Sprint 2)
