@@ -40,24 +40,56 @@ const API = (() => {
       options.body = JSON.stringify(options.body);
     }
 
+    const timeoutMs = options.timeout || 15000;
+    const internalCtrl = new AbortController();
+    const timeoutId = setTimeout(() => {
+      internalCtrl.abort(new Error(`Permintaan timeout: Server tidak merespons dalam ${timeoutMs / 1000} detik`));
+    }, timeoutMs);
+
+    let abortHandler = null;
+    if (options.signal) {
+      if (options.signal.aborted) {
+        clearTimeout(timeoutId);
+        internalCtrl.abort(options.signal.reason);
+      } else {
+        abortHandler = () => {
+          clearTimeout(timeoutId);
+          internalCtrl.abort(options.signal.reason);
+        };
+        options.signal.addEventListener("abort", abortHandler, { once: true });
+      }
+    }
+    const signal = internalCtrl.signal;
+
     const config = {
       ...options,
       method,
       headers,
+      signal,
       credentials: "same-origin"
     };
 
-    let res = await fetch(endpoint, config);
+    let res;
+    try {
+      res = await fetch(endpoint, config);
 
-    // Jika terjadi 403 (mungkin token CSRF kedaluwarsa atau belum sinkron), coba perbarui token 1 kali
-    if (res.status === 403 && method !== "GET") {
-      try {
-        const refreshedToken = await fetchCsrfToken();
-        headers["X-CSRF-Token"] = refreshedToken;
-        config.headers = headers;
-        res = await fetch(endpoint, config);
-      } catch {
-        // Biarkan fallback ke penanganan error di bawah jika retry gagal
+      // Jika terjadi 403 (mungkin token CSRF kedaluwarsa atau belum sinkron), coba perbarui token 1 kali
+      if (res.status === 403 && method !== "GET") {
+        try {
+          const refreshedToken = await fetchCsrfToken();
+          headers["X-CSRF-Token"] = refreshedToken;
+          config.headers = headers;
+          res = await fetch(endpoint, config);
+        } catch {
+          // Biarkan fallback ke penanganan error di bawah jika retry gagal
+        }
+      }
+    } finally {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+      if (options.signal && abortHandler) {
+        options.signal.removeEventListener("abort", abortHandler);
       }
     }
 
@@ -72,7 +104,11 @@ const API = (() => {
 
     if (!res.ok) {
       const errorMsg = responseData?.error || responseData?.message || `Permintaan gagal (${res.status})`;
-      throw new Error(errorMsg);
+      const err = new Error(errorMsg);
+      if (responseData && typeof responseData === "object") {
+        Object.assign(err, responseData);
+      }
+      throw err;
     }
 
     return responseData;
@@ -89,6 +125,7 @@ const API = (() => {
       if (params.category) query.set("category", params.category);
       if (params.search) query.set("search", params.search);
       if (params.include_archived) query.set("include_archived", "true");
+      if (params.provenance) query.set("provenance", params.provenance);
       if (params.sort_by) query.set("sort_by", params.sort_by);
       if (params.sort_order) query.set("sort_order", params.sort_order);
 
@@ -116,6 +153,14 @@ const API = (() => {
       method: "POST"
     }),
 
+    getWorkItemDeletePreview: (id, options = {}) => request(`/api/work-items/${encodeURIComponent(id)}/delete-preview`, options),
+
+    permanentDeleteWorkItem: (id, confirmCode, options = {}) => request(`/api/work-items/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      body: { confirm_code: confirmCode },
+      ...options
+    }),
+
     // Activity Log Endpoints
     listActivities: (workItemId) => request(`/api/work-items/${encodeURIComponent(workItemId)}/activities`),
 
@@ -131,9 +176,127 @@ const API = (() => {
       method: "POST"
     }),
 
-    restoreBackup: (filename) => request("/api/backups/restore", {
+    inspectBackup: (filename, options = {}) => request(`/api/backup/inspect?filename=${encodeURIComponent(filename)}`, options),
+
+    restoreBackup: (filename, options = {}) => request("/api/backups/restore", {
       method: "POST",
-      body: { filename }
-    })
+      body: { filename },
+      ...options
+    }),
+
+    deleteBackup: (filename) => request(`/api/backup/${encodeURIComponent(filename)}`, {
+      method: "DELETE"
+    }),
+
+    deleteBackupsBatch: (filenames) => request("/api/backup/delete-batch", {
+      method: "POST",
+      body: { filenames }
+    }),
+
+    // Subtask & Checklist Endpoints (Sprint 2)
+    listSubtasks: (workItemId) => request(`/api/work-items/${encodeURIComponent(workItemId)}/subtasks`),
+
+    createSubtask: (workItemId, payload) => request(`/api/work-items/${encodeURIComponent(workItemId)}/subtasks`, {
+      method: "POST",
+      body: payload
+    }),
+
+    updateSubtask: (id, payload) => request(`/api/subtasks/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      body: payload
+    }),
+
+    deleteSubtask: (id) => request(`/api/subtasks/${encodeURIComponent(id)}`, {
+      method: "DELETE"
+    }),
+
+    // Categories Endpoints
+    listCategories: (all = false) => request(`/api/categories${all ? "?all=true" : ""}`),
+
+    createCategory: (payload) => request("/api/categories", {
+      method: "POST",
+      body: payload
+    }),
+
+    updateCategory: (id, payload) => request(`/api/categories/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      body: payload
+    }),
+
+    deleteCategory: (id) => request(`/api/categories/${encodeURIComponent(id)}`, {
+      method: "DELETE"
+    }),
+
+    // Work Templates Endpoints
+    listTemplates: () => request("/api/templates"),
+
+    getTemplate: (id) => request(`/api/templates/${encodeURIComponent(id)}`),
+
+    createTemplate: (payload) => request("/api/templates", {
+      method: "POST",
+      body: payload
+    }),
+
+    updateTemplate: (id, payload) => request(`/api/templates/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      body: payload
+    }),
+
+    deleteTemplate: (id) => request(`/api/templates/${encodeURIComponent(id)}`, {
+      method: "DELETE"
+    }),
+
+    applyTemplate: (id, payload) => {
+      const body = typeof payload === "string" ? { received_on: payload } : (payload || {});
+      return request(`/api/templates/${encodeURIComponent(id)}/apply`, {
+        method: "POST",
+        body
+      });
+    },
+
+    // Recurring Tasks Endpoints
+    listRecurringSchedules: () => request("/api/recurring-schedules"),
+
+    createRecurringSchedule: (payload) => request("/api/recurring-schedules", {
+      method: "POST",
+      body: payload
+    }),
+
+    updateRecurringSchedule: (id, payload) => request(`/api/recurring-schedules/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      body: payload
+    }),
+
+    deleteRecurringSchedule: (id) => request(`/api/recurring-schedules/${encodeURIComponent(id)}`, {
+      method: "DELETE"
+    }),
+
+    triggerRecurring: (asOfDate) => request("/api/recurring-schedules/trigger", {
+      method: "POST",
+      body: { as_of_date: asOfDate || null }
+    }),
+
+    // Data Import Center Endpoints (Sprint 3)
+    previewImport: (formData) => request("/api/import/preview", {
+      method: "POST",
+      body: formData
+    }),
+
+    commitImport: (formData) => request("/api/import/commit", {
+      method: "POST",
+      body: formData
+    }),
+
+    listImportHistory: (limit = 20, offset = 0) => request(`/api/import/history?limit=${encodeURIComponent(limit)}&offset=${encodeURIComponent(offset)}`),
+
+    getImportBatch: (id) => request(`/api/import/batches/${encodeURIComponent(id)}`),
+
+    compensateBatch: (id, force = false) => request(`/api/import/batches/${encodeURIComponent(id)}/compensate${force ? "?force=true" : ""}`, {
+      method: "POST"
+    }),
+
+    getImportErrorReportUrl: (id) => `/api/import/batches/${encodeURIComponent(id)}/error-report`,
+    getCSVTemplateUrl: () => "/api/import/template/csv",
+    getXLSXTemplateUrl: () => "/api/import/template/xlsx"
   };
 })();

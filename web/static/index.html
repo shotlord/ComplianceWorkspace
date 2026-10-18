@@ -3,7 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Compliance Workspace v1.0</title>
+  <title>Compliance Workspace v1.1.0</title>
+  <link rel="icon" href="/favicon.ico" sizes="any">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/css/app.css">
 </head>
 <body>
@@ -11,12 +13,9 @@
     <!-- Sidebar Navigasi -->
     <aside class="app-sidebar" aria-label="Navigasi Utama">
       <div class="sidebar-header">
-        <span class="brand-badge">v1.0 OFFLINE</span>
-        <div class="brand-title">
-          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-          </svg>
-          Compliance
+        <span class="brand-badge" id="appBrandBadge">v1.1.0 OFFLINE</span>
+        <div class="brand-logo-container">
+          <img src="/assets/ComplianceWorkspace_logo_full_horizontal_white.png" alt="Compliance Workspace" class="brand-logo" width="180" height="auto">
         </div>
         <div class="brand-subtitle">Workspace Kepatuhan Pribadi</div>
       </div>
@@ -61,6 +60,23 @@
           <span class="nav-text">Deadline Tracker</span>
         </button>
 
+        <button class="nav-item" data-nav-view="task_management">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 11l3 3L22 4"/>
+            <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+          </svg>
+          <span class="nav-text">Tugas & Template</span>
+        </button>
+
+        <button class="nav-item" data-nav-view="import_data">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+          <span class="nav-text">Impor Data</span>
+        </button>
+
         <button class="nav-item" data-nav-view="settings_backup">
           <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="3"/>
@@ -73,7 +89,7 @@
       <div class="sidebar-footer">
         <div class="footer-status">
           <span class="status-dot"></span>
-          <span>127.0.0.1 (Lokal Aman)</span>
+          <span>127.0.0.1 (Localhost)</span>
         </div>
         <div>Penyimpanan: SQLite data/</div>
       </div>
@@ -169,6 +185,39 @@
               </div>
             </div>
           </div>
+
+          <!-- Ringkasan Monitoring Jadwal Berulang (ENH-REC-001) -->
+          <div class="card" style="margin-top: 16px;">
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+              <div class="card-title">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="10"/>
+                  <polyline points="12 6 12 12 16 14"/>
+                </svg>
+                Monitoring Jadwal Berulang (Recurring Tasks)
+              </div>
+              <button type="button" class="btn btn-secondary btn-sm" id="btnDashboardToRecurring">Buka Jadwal Rutin &rarr;</button>
+            </div>
+            <div class="card-body">
+              <div class="metrics-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); margin-bottom: 0;">
+                <div class="metric-card info" style="padding: 12px 16px;">
+                  <div class="metric-label">Jadwal Rutin Aktif</div>
+                  <div class="metric-value" id="metricRecActive" style="font-size: 24px;">0</div>
+                  <div class="metric-subtext">Jadwal aktif dipantau</div>
+                </div>
+                <div class="metric-card warning" style="padding: 12px 16px;">
+                  <div class="metric-label">Mendekati Jatuh Tempo (≤ 7 Hari)</div>
+                  <div class="metric-value" id="metricRecDueSoon" style="font-size: 24px;">0</div>
+                  <div class="metric-subtext">Segera/siap dievaluasi</div>
+                </div>
+                <div class="metric-card danger" style="padding: 12px 16px;">
+                  <div class="metric-label">Perlu Perhatian</div>
+                  <div class="metric-value" id="metricRecAttention" style="font-size: 24px;">0</div>
+                  <div class="metric-subtext">Kategori nonaktif / expired</div>
+                </div>
+              </div>
+            </div>
+          </div>
         </section>
 
         <!-- 2. VIEW: WORK REGISTER -->
@@ -210,6 +259,15 @@
                     <option value="">Semua Kategori</option>
                   </select>
 
+                  <select id="filterProvenance" class="filter-select">
+                    <option value="">Semua Asal</option>
+                    <option value="manual">Manual</option>
+                    <option value="template">Template</option>
+                    <option value="recurring">Jadwal Rutin</option>
+                    <option value="import">Impor</option>
+                    <option value="unknown">Tidak Diketahui</option>
+                  </select>
+
                   <select id="filterSort" class="filter-select">
                     <option value="received_on_desc">Terbaru Diterima</option>
                     <option value="due_on_asc">Tenggat Terdekat</option>
@@ -235,11 +293,12 @@
                       <th>Tenggat</th>
                       <th>Prioritas</th>
                       <th>Status</th>
+                      <th>Progres</th>
                       <th>Aksi</th>
                     </tr>
                   </thead>
                   <tbody id="workRegisterTableBody">
-                    <tr><td colspan="8" class="empty-state">Memuat data pekerjaan...</td></tr>
+                    <tr><td colspan="9" class="empty-state">Memuat data pekerjaan...</td></tr>
                   </tbody>
                 </table>
               </div>
@@ -331,7 +390,126 @@
           </div>
         </section>
 
-        <!-- 5. VIEW: SETTINGS & BACKUP -->
+        <!-- 5. VIEW: TASK MANAGEMENT (Jadwal Berulang, Template, Kategori) -->
+        <section id="view-task_management" class="view-section">
+          <div class="card">
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+              <div class="card-title">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M9 11l3 3L22 4"/>
+                  <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+                </svg>
+                Tugas, Template & Master Kategori
+              </div>
+              <div style="display: flex; gap: 8px;">
+                <button id="btnTriggerRecurringManual" class="btn btn-secondary btn-sm" title="Jalankan pemeriksaan jadwal berulang sekarang">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="23 4 23 10 17 10"/>
+                    <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+                  </svg>
+                  Periksa Jadwal
+                </button>
+                <button id="btnOpenNewTaskItemModal" class="btn btn-primary btn-sm">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="12" y1="5" x2="12" y2="19"/>
+                    <line x1="5" y1="12" x2="19" y2="12"/>
+                  </svg>
+                  <span id="btnNewTaskItemLabel">Tambah Jadwal</span>
+                </button>
+              </div>
+            </div>
+            <div class="card-body">
+              <!-- Tab Navigasi -->
+              <div class="tab-nav">
+                <button class="tab-btn active" data-task-tab="recurring">Jadwal Berulang (Recurring)</button>
+                <button class="tab-btn" data-task-tab="templates">Template Pekerjaan</button>
+                <button class="tab-btn" data-task-tab="categories">Kategori Pekerjaan</button>
+              </div>
+
+              <!-- Tab 1: Jadwal Berulang -->
+              <div id="tabContentRecurring" class="tab-pane active">
+                <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 14px;">
+                  Pekerjaan berulang dieksekusi secara otomatis saat aplikasi dibuka, setiap 1 jam via background ticker, atau melalui tombol "Periksa Jadwal" dengan perlindungan idempotensi.
+                </p>
+                <div class="table-responsive">
+                  <table class="data-table">
+                    <thead>
+                      <tr>
+                        <th>Judul Jadwal</th>
+                        <th>Kategori</th>
+                        <th>Prioritas</th>
+                        <th>Frekuensi</th>
+                        <th>Jadwal Berikutnya</th>
+                        <th>Terakhir Berjalan</th>
+                        <th>Status</th>
+                        <th>Aksi</th>
+                      </tr>
+                    </thead>
+                    <tbody id="recurringTableBody">
+                      <tr><td colspan="8" class="empty-state">Memuat jadwal berulang...</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <!-- Tab 2: Template Pekerjaan -->
+              <div id="tabContentTemplates" class="tab-pane" style="display: none;">
+                <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 14px;">
+                  Template pekerjaan memuat daftar checklist/subtask standar yang dapat langsung disalin ke pekerjaan baru saat registrasi.
+                </p>
+                <div class="table-responsive">
+                  <table class="data-table">
+                    <thead>
+                      <tr>
+                        <th>Nama Template</th>
+                        <th>Kategori</th>
+                        <th>Prioritas Default</th>
+                        <th>Jumlah Checklist</th>
+                        <th>Deskripsi</th>
+                        <th>Aksi</th>
+                      </tr>
+                    </thead>
+                    <tbody id="templateTableBody">
+                      <tr><td colspan="6" class="empty-state">Memuat template...</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <!-- Tab 3: Kategori Pekerjaan -->
+              <div id="tabContentCategories" class="tab-pane" style="display: none;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+                  <p style="font-size: 13px; color: var(--text-muted); margin: 0;">
+                    Master kategori kepatuhan digunakan untuk pengelompokan pekerjaan, filtering, serta laporan kepatuhan.
+                  </p>
+                  <button type="button" id="btnRefreshCategories" class="btn btn-secondary btn-sm">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                    Segarkan
+                  </button>
+                </div>
+                <div class="table-responsive">
+                  <table class="data-table">
+                    <thead>
+                      <tr>
+                        <th>Nama Kategori</th>
+                        <th>Warna Label</th>
+                        <th>Deskripsi</th>
+                        <th>Tipe</th>
+                        <th>Status</th>
+                        <th>Aksi</th>
+                      </tr>
+                    </thead>
+                    <tbody id="categoryTableBody">
+                      <tr><td colspan="6" class="empty-state">Memuat master kategori...</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 6. VIEW: SETTINGS & BACKUP -->
         <section id="view-settings_backup" class="view-section">
           <div class="card">
             <div class="card-header">
@@ -342,11 +520,11 @@
                 <tbody>
                   <tr>
                     <td style="font-weight: 600; width: 200px;">Versi Aplikasi</td>
-                    <td>v1.0 (Local-First Offline)</td>
+                    <td>v1.1.0</td>
                   </tr>
                   <tr>
                     <td style="font-weight: 600;">Status Jaringan</td>
-                    <td><span class="badge badge-status-completed"><span class="badge-dot"></span>127.0.0.1 (Hanya Localhost)</span></td>
+                    <td><span class="badge badge-status-completed"><span class="badge-dot"></span>127.0.0.1 (Localhost)</span></td>
                   </tr>
                   <tr>
                     <td style="font-weight: 600;">Penyimpanan Basis Data</td>
@@ -354,7 +532,7 @@
                   </tr>
                   <tr>
                     <td style="font-weight: 600;">Driver Database</td>
-                    <td><code>modernc.org/sqlite</code> (Tanpa dependensi CGO)</td>
+                    <td><code>modernc.org/sqlite</code> (Pure Go)</td>
                   </tr>
                   <tr>
                     <td style="font-weight: 600;">Zona Waktu Tampilan</td>
@@ -362,7 +540,7 @@
                   </tr>
                   <tr>
                     <td style="font-weight: 600;">Dependensi Internet</td>
-                    <td>Nol (0%) — Beroperasi tanpa koneksi luar</td>
+                    <td>No Internet Connection Required</td>
                   </tr>
                 </tbody>
               </table>
@@ -423,11 +601,26 @@
                   <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">
                     Snapshot database dibuat secara atomik menggunakan perintah SQLite <code>VACUUM INTO</code> ke folder <code>backups/</code> dan diverifikasi integritasnya sebelum dicatat.
                   </p>
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap: 8px;">
+                    <div style="display: flex; gap: 8px; align-items: center;">
+                      <button type="button" id="btnDeleteSelectedBackups" class="btn btn-danger btn-sm" style="display: none;">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <polyline points="3 6 5 6 21 6"></polyline>
+                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                        </svg>
+                        Hapus yang Dipilih (<span id="selectedBackupsCount">0</span>)
+                      </button>
+                    </div>
+                  </div>
                   <div class="table-responsive">
                     <table class="data-table">
                       <thead>
                         <tr>
+                          <th style="width: 38px; text-align: center;">
+                            <input type="checkbox" id="checkAllBackups" title="Pilih Semua Cadangan">
+                          </th>
                           <th>Nama File Cadangan</th>
+                          <th>Versi Skema</th>
                           <th>Tanggal Pembuatan</th>
                           <th>Ukuran File</th>
                           <th>Integritas</th>
@@ -435,10 +628,257 @@
                         </tr>
                       </thead>
                       <tbody id="backupListTableBody">
-                        <tr><td colspan="5" class="empty-state">Memuat daftar cadangan...</td></tr>
+                        <tr><td colspan="7" class="empty-state">Memuat daftar cadangan...</td></tr>
                       </tbody>
                     </table>
                   </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 6. VIEW: DATA IMPORT CENTER (CSV & XLSX) -->
+        <section id="view-import_data" class="view-section">
+          <div class="card">
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+              <div class="card-title">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                  <polyline points="7 10 12 15 17 10"/>
+                  <line x1="12" y1="15" x2="12" y2="3"/>
+                </svg>
+                Data Import Center (CSV & Excel XLSX)
+              </div>
+              <div style="display: flex; gap: 8px;">
+                <a href="/api/import/template/csv" download="template_kepatuhan.csv" class="btn btn-secondary btn-sm" title="Unduh format template CSV standar">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  Template CSV
+                </a>
+                <a href="/api/import/template/xlsx" download="template_kepatuhan.xlsx" class="btn btn-secondary btn-sm" title="Unduh format template Excel XLSX berformat">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  Template XLSX
+                </a>
+              </div>
+            </div>
+            <div class="card-body">
+              <!-- Tab Navigasi Impor -->
+              <div class="tab-nav">
+                <button class="tab-btn active" data-import-tab="wizard">Wizard Impor Berkas</button>
+                <button class="tab-btn" data-import-tab="history">Riwayat Impor & Audit Trail</button>
+              </div>
+
+              <!-- Tab Pane 1: Wizard Impor -->
+              <div id="tabContentImportWizard" class="tab-pane active">
+                <!-- Wizard Stepper Breadcrumbs -->
+                <div class="import-stepper" style="display: flex; gap: 12px; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--border-color); align-items: center; flex-wrap: wrap;">
+                  <div class="step-item" id="stepIndicator1" style="display: flex; align-items: center; gap: 8px; font-weight: 600; color: var(--primary);">
+                    <span style="width: 24px; height: 24px; border-radius: 50%; background-color: var(--primary); color: white; display: flex; align-items: center; justify-content: center; font-size: 12px;">1</span>
+                    <span>Pilih Berkas</span>
+                  </div>
+                  <span style="color: var(--text-muted);">&rarr;</span>
+                  <div class="step-item" id="stepIndicator2" style="display: flex; align-items: center; gap: 8px; color: var(--text-muted);">
+                    <span id="stepBadge2" style="width: 24px; height: 24px; border-radius: 50%; background-color: var(--bg-muted); color: var(--text-muted); display: flex; align-items: center; justify-content: center; font-size: 12px;">2</span>
+                    <span>Pemetaan Kolom</span>
+                  </div>
+                  <span style="color: var(--text-muted);">&rarr;</span>
+                  <div class="step-item" id="stepIndicator3" style="display: flex; align-items: center; gap: 8px; color: var(--text-muted);">
+                    <span id="stepBadge3" style="width: 24px; height: 24px; border-radius: 50%; background-color: var(--bg-muted); color: var(--text-muted); display: flex; align-items: center; justify-content: center; font-size: 12px;">3</span>
+                    <span>Pratinjau & Validasi</span>
+                  </div>
+                  <span style="color: var(--text-muted);">&rarr;</span>
+                  <div class="step-item" id="stepIndicator4" style="display: flex; align-items: center; gap: 8px; color: var(--text-muted);">
+                    <span id="stepBadge4" style="width: 24px; height: 24px; border-radius: 50%; background-color: var(--bg-muted); color: var(--text-muted); display: flex; align-items: center; justify-content: center; font-size: 12px;">4</span>
+                    <span>Hasil & Komit</span>
+                  </div>
+                </div>
+
+                <!-- Step 1 Container: File Upload -->
+                <div id="importStep1" class="wizard-step-content">
+                  <div style="border: 2px dashed var(--border-color); border-radius: var(--radius-md); padding: 40px 20px; text-align: center; background-color: var(--bg-subtle); margin-bottom: 20px;">
+                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="color: var(--primary); margin-bottom: 12px;">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                      <polyline points="17 8 12 3 7 8"/>
+                      <line x1="12" y1="3" x2="12" y2="15"/>
+                    </svg>
+                    <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 6px;">Pilih Berkas CSV atau Excel XLSX</h3>
+                    <p style="font-size: 13px; color: var(--text-muted); max-width: 560px; margin: 0 auto 16px;">
+                      Mendukung CSV UTF-8 (dengan/tanpa BOM) dan Microsoft Excel (.xlsx). Batas maksimal 10 MB atau 5.000 baris per batch.
+                    </p>
+                    <input type="file" id="importFileInput" accept=".csv, .xlsx, text/csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="display: none;">
+                    <button type="button" id="btnSelectImportFile" class="btn btn-primary">
+                      Pilih Berkas dari Komputer
+                    </button>
+                    <div id="selectedFileInfo" style="margin-top: 14px; font-size: 13px; font-weight: 600; color: var(--primary); display: none;"></div>
+                  </div>
+                  <div style="display: flex; justify-content: flex-end;">
+                    <button type="button" id="btnGoToStep2" class="btn btn-primary" disabled>
+                      Lanjutkan ke Pemetaan Kolom &rarr;
+                    </button>
+                  </div>
+                </div>
+
+                <!-- Step 2 Container: Column Mapping & Options -->
+                <div id="importStep2" class="wizard-step-content" style="display: none;">
+                  <div style="background-color: var(--bg-muted); padding: 16px; border-radius: var(--radius-sm); border: 1px solid var(--border-color); margin-bottom: 20px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                      <h4 style="font-size: 14px; font-weight: 600;">Pengaturan Berkas & Mode Impor</h4>
+                      <span id="mappingFileMeta" style="font-size: 12px; color: var(--text-muted);"></span>
+                    </div>
+                    <div class="form-grid-2">
+                      <div class="form-group" id="groupSheetSelect" style="display: none;">
+                        <label class="form-label" for="importSheetSelect">Pilih Lembar Kerja (Worksheet):</label>
+                        <select id="importSheetSelect" class="form-control"></select>
+                      </div>
+                      <div class="form-group">
+                        <label class="form-label" for="importDuplicateMode">Penanganan Duplikasi (Duplicate Mode):</label>
+                        <select id="importDuplicateMode" class="form-control">
+                          <option value="skip" selected>Lewati (Skip) — Rekomendasi: Abaikan jika pekerjaan serupa sudah ada</option>
+                          <option value="create">Buat Baru (Create) — Tetap buat pekerjaan baru meskipun terdeteksi serupa</option>
+                        </select>
+                        <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Pencegahan duplikasi mendeteksi kombinasi Judul, Pemohon, dan Tanggal Diterima.</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <h4 style="font-size: 14px; font-weight: 600; margin-bottom: 12px;">Pemetaan Kolom Berkas ke Kolom Work Register</h4>
+                  <div class="table-responsive" style="margin-bottom: 20px;">
+                    <table class="data-table">
+                      <thead>
+                        <tr>
+                          <th style="width: 28%;">Kolom Tujuan (Sistem)</th>
+                          <th style="width: 32%;">Kolom Berkas (Header Terdeteksi)</th>
+                          <th style="width: 40%;">Keterangan & Format</th>
+                        </tr>
+                      </thead>
+                      <tbody id="mappingTableBody">
+                        <!-- Dynamic mappings generated from file headers -->
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div style="display: flex; justify-content: space-between;">
+                    <button type="button" id="btnBackToStep1" class="btn btn-secondary">&larr; Kembali</button>
+                    <button type="button" id="btnRunDryRunPreview" class="btn btn-primary">Jalankan Pratinjau & Validasi (Dry-run) &rarr;</button>
+                  </div>
+                </div>
+
+                <!-- Step 3 Container: Preview & Validation Table -->
+                <div id="importStep3" class="wizard-step-content" style="display: none;">
+                  <!-- Metrics Summary Cards -->
+                  <div class="metrics-grid" style="margin-bottom: 20px;">
+                    <div class="metric-card">
+                      <div class="metric-label">Total Baris Ditemukan</div>
+                      <div class="metric-val" id="previewMetricTotal">0</div>
+                    </div>
+                    <div class="metric-card">
+                      <div class="metric-label">Baris Siap Diimpor</div>
+                      <div class="metric-val text-success" id="previewMetricValid">0</div>
+                    </div>
+                    <div class="metric-card">
+                      <div class="metric-label">Duplikasi Terdeteksi</div>
+                      <div class="metric-val text-warning" id="previewMetricDuplicate">0</div>
+                    </div>
+                    <div class="metric-card">
+                      <div class="metric-label">Baris Tidak Valid / Error</div>
+                      <div class="metric-val text-danger" id="previewMetricError">0</div>
+                    </div>
+                  </div>
+
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                    <h4 style="font-size: 14px; font-weight: 600;">Pratinjau Hasil Pembacaan Berkas (Read-Only)</h4>
+                    <div style="font-size: 12px; color: var(--text-muted);">
+                      <span class="badge badge-status-completed" style="margin-right: 6px;"><span class="badge-dot"></span>Siap Impor</span>
+                      <span class="badge badge-status-waiting" style="margin-right: 6px;"><span class="badge-dot"></span>Duplikasi</span>
+                      <span class="badge badge-status-cancelled"><span class="badge-dot"></span>Error</span>
+                    </div>
+                  </div>
+
+                  <div class="table-responsive" style="max-height: 400px; overflow-y: auto; margin-bottom: 20px;">
+                    <table class="data-table">
+                      <thead>
+                        <tr>
+                          <th>Baris</th>
+                          <th>Status Validasi</th>
+                          <th>Judul Pekerjaan</th>
+                          <th>Kategori</th>
+                          <th>Pemberi Tugas</th>
+                          <th>Tgl Diterima</th>
+                          <th>Batas Waktu</th>
+                          <th>Prioritas</th>
+                          <th>Status</th>
+                          <th>Catatan Validasi</th>
+                        </tr>
+                      </thead>
+                      <tbody id="previewTableBody">
+                        <!-- Populated by preview results -->
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <button type="button" id="btnBackToStep2" class="btn btn-secondary">&larr; Ubah Pemetaan</button>
+                    <div style="display: flex; gap: 10px;">
+                      <button type="button" id="btnCancelImport" class="btn btn-secondary">Batalkan Impor</button>
+                      <button type="button" id="btnCommitImport" class="btn btn-primary" disabled>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+                        <span id="btnCommitLabel">Komit & Simpan Impor</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Step 4 Container: Import Finished Result -->
+                <div id="importStep4" class="wizard-step-content" style="display: none;">
+                  <div id="importResultSuccessCard" style="border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 32px; text-align: center; background-color: var(--bg-surface);">
+                    <div style="width: 56px; height: 56px; border-radius: 50%; background-color: var(--success-subtle); color: var(--success-text); display: flex; align-items: center; justify-content: center; margin: 0 auto 16px;">
+                      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                    </div>
+                    <h3 style="font-size: 18px; font-weight: 700; margin-bottom: 8px;">Impor Data Berhasil Diproses!</h3>
+                    <p id="importResultSummaryText" style="font-size: 13.5px; color: var(--text-muted); margin-bottom: 24px;"></p>
+                    <div style="background-color: var(--bg-muted); padding: 14px; border-radius: var(--radius-sm); border-left: 4px solid var(--primary); text-align: left; max-width: 600px; margin: 0 auto 24px; font-size: 12.5px;">
+                      <strong>Perlindungan Integritas:</strong> Salinan cadangan otomatis (pre-import snapshot) telah diamankan sebelum commit. Seluruh pekerjaan yang dibuat telah teregistrasi dengan kode unik dan tercatat di Activity Log append-only.
+                    </div>
+                    <div style="display: flex; justify-content: center; gap: 12px;">
+                      <button type="button" id="btnFinishGoToRegister" class="btn btn-primary">Lihat di Work Register</button>
+                      <button type="button" id="btnFinishNewImport" class="btn btn-secondary">Impor Berkas Lain</button>
+                      <button type="button" id="btnFinishViewHistory" class="btn btn-secondary">Buka Riwayat Impor</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Tab Pane 2: Riwayat Impor & Audit -->
+              <div id="tabContentImportHistory" class="tab-pane" style="display: none;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+                  <p style="font-size: 13px; color: var(--text-muted); margin: 0;">
+                    Daftar seluruh proses impor yang pernah dilakukan beserta audit trail, laporan baris gagal, dan opsi tindakan kompensasi pembatalan.
+                  </p>
+                  <button type="button" id="btnRefreshImportHistory" class="btn btn-secondary btn-sm">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                    Segarkan
+                  </button>
+                </div>
+                <div class="table-responsive">
+                  <table class="data-table">
+                    <thead>
+                      <tr>
+                        <th>ID Batch</th>
+                        <th>Waktu Impor</th>
+                        <th>Nama Berkas</th>
+                        <th>Format</th>
+                        <th>Total</th>
+                        <th>Dibuat</th>
+                        <th>Dilewati</th>
+                        <th>Gagal</th>
+                        <th>Status Batch</th>
+                        <th>Aksi</th>
+                      </tr>
+                    </thead>
+                    <tbody id="importHistoryTableBody">
+                      <tr><td colspan="10" class="empty-state">Memuat riwayat impor...</td></tr>
+                    </tbody>
+                  </table>
                 </div>
               </div>
             </div>
@@ -457,6 +897,14 @@
       </div>
       <form id="formCreateWork">
         <div class="modal-body">
+          <div class="form-group" style="background-color: var(--bg-muted); padding: 12px; border-radius: var(--radius-sm); border: 1px dashed var(--border-color); margin-bottom: 16px;">
+            <label class="form-label" for="createSelectTemplate" style="margin-bottom: 4px;">Gunakan Template Pekerjaan (Opsional):</label>
+            <select id="createSelectTemplate" class="form-control">
+              <option value="">-- Buat Manual (Tanpa Template) --</option>
+            </select>
+            <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Memilih template akan otomatis mengisi judul, kategori, prioritas, dan membuat checklist awal.</div>
+          </div>
+
           <div class="form-group">
             <label class="form-label" for="createTitle">Judul Pekerjaan <span class="required">*</span></label>
             <input type="text" id="createTitle" class="form-control" placeholder="Contoh: Tinjauan Kepatuhan Perlindungan Data Pribadi" required>
@@ -464,8 +912,15 @@
 
           <div class="form-grid-2">
             <div class="form-group">
-              <label class="form-label" for="createCategory">Kategori</label>
-              <input type="text" id="createCategory" class="form-control" value="General" placeholder="Contoh: Regulasi, Audit, AML">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                <label class="form-label" for="createCategory" style="margin-bottom: 0;">Kategori</label>
+                <button type="button" id="btnManageCategoriesFromCreate" class="btn btn-secondary btn-sm" style="padding: 2px 8px; font-size: 11px;">
+                  Kelola Kategori
+                </button>
+              </div>
+              <select id="createCategory" class="form-control">
+                <option value="General">General</option>
+              </select>
             </div>
             <div class="form-group">
               <label class="form-label" for="createRequestedBy">Pemberi Tugas / Asal Permintaan</label>
@@ -524,8 +979,15 @@
 
           <div class="form-grid-2">
             <div class="form-group">
-              <label class="form-label" for="editCategory">Kategori</label>
-              <input type="text" id="editCategory" class="form-control" required>
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                <label class="form-label" for="editCategory" style="margin-bottom: 0;">Kategori</label>
+                <button type="button" id="btnManageCategoriesFromEdit" class="btn btn-secondary btn-sm" style="padding: 2px 8px; font-size: 11px;">
+                  Kelola Kategori
+                </button>
+              </div>
+              <select id="editCategory" class="form-control" required>
+                <option value="General">General</option>
+              </select>
             </div>
             <div class="form-group">
               <label class="form-label" for="editRequestedBy">Pemberi Tugas</label>
@@ -624,6 +1086,36 @@
           </div>
         </div>
 
+        <!-- Bagian Subtask & Checklist (Sprint 2) -->
+        <div class="card" style="margin-bottom: 20px;">
+          <div class="card-header" style="padding: 10px 14px; display: flex; justify-content: space-between; align-items: center;">
+            <div class="card-title" style="font-size: 13.5px;">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M9 11l3 3L22 4"/>
+                <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+              </svg>
+              Subtask & Checklist Progres
+            </div>
+            <span id="detailSubtaskRatio" class="progress-badge">0 / 0 (0%)</span>
+          </div>
+          <div class="card-body" style="padding: 14px;">
+            <div class="progress-bar-bg" style="margin-bottom: 14px;">
+              <div id="detailSubtaskProgressFill" class="progress-bar-fill" style="width: 0%;"></div>
+            </div>
+
+            <!-- List Subtask Dinamis -->
+            <div id="detailSubtaskList" style="display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px;">
+              <div class="empty-state" style="padding: 12px;">Belum ada subtask/checklist.</div>
+            </div>
+
+            <!-- Form Tambah Subtask Cepat -->
+            <form id="formAddSubtask" style="display: flex; gap: 8px;">
+              <input type="text" id="newSubtaskTitle" class="form-control" placeholder="Tambah item checklist / subtask baru..." style="flex: 1;" required>
+              <button type="submit" class="btn btn-secondary btn-sm" style="white-space: nowrap;">+ Tambah Subtask</button>
+            </form>
+          </div>
+        </div>
+
         <!-- Form Tambah Catatan Aktivitas -->
         <div class="card" style="margin-bottom: 20px;">
           <div class="card-header" style="padding: 10px 14px;">
@@ -654,6 +1146,256 @@
     </div>
   </div>
 
+  <!-- MODAL: Tambah / Edit Jadwal Berulang -->
+  <div class="modal-overlay" id="modalCreateRecurring">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-title" id="modalRecurringTitle">Tambah Jadwal Pekerjaan Berulang (Recurring)</div>
+        <button class="modal-close" data-close-modal="modalCreateRecurring" aria-label="Tutup">&times;</button>
+      </div>
+      <form id="formCreateRecurring">
+        <input type="hidden" id="recId">
+        <div class="modal-body">
+          <div class="form-group">
+            <label class="form-label" for="recTitle">Judul Jadwal / Pekerjaan <span class="required">*</span></label>
+            <input type="text" id="recTitle" class="form-control" placeholder="Contoh: Laporan Bulanan Anti-Pencucian Uang (APU-PPT)" required>
+          </div>
+
+          <div class="form-grid-2">
+            <div class="form-group">
+              <label class="form-label" for="recCategory">Kategori</label>
+              <select id="recCategory" class="form-control">
+                <option value="General">General</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="recPriority">Prioritas</label>
+              <select id="recPriority" class="form-control">
+                <option value="normal" selected>Normal</option>
+                <option value="low">Rendah</option>
+                <option value="high">Tinggi</option>
+                <option value="critical">Kritis</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-grid-2">
+            <div class="form-group">
+              <label class="form-label" for="recType">Frekuensi Perulangan <span class="required">*</span></label>
+              <select id="recType" class="form-control" required>
+                <option value="daily">Harian (Daily)</option>
+                <option value="weekly">Mingguan (Weekly)</option>
+                <option value="monthly" selected>Bulanan (Monthly)</option>
+                <option value="quarterly">Triwulanan (Quarterly)</option>
+                <option value="yearly">Tahunan (Yearly)</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="recInterval">Interval (Setiap N) <span class="required">*</span></label>
+              <input type="number" id="recInterval" class="form-control" value="1" min="1" max="365" required>
+            </div>
+          </div>
+
+          <div class="form-grid-2">
+            <div class="form-group">
+              <label class="form-label" for="recStartDate">Tanggal Mulai Berlaku <span class="required">*</span></label>
+              <input type="date" id="recStartDate" class="form-control" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="recEndDate">Tanggal Berakhir (Opsional)</label>
+              <input type="date" id="recEndDate" class="form-control">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="recTemplateId">Gunakan Template Subtask (Opsional)</label>
+            <select id="recTemplateId" class="form-control">
+              <option value="">-- Tanpa Template (Kosong) --</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="recDescription">Deskripsi Pekerjaan</label>
+            <textarea id="recDescription" class="form-control" rows="2" placeholder="Detail instruksi pekerjaan yang akan digenerate otomatis..."></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-close-modal="modalCreateRecurring">Batal</button>
+          <button type="submit" id="btnSubmitRecurring" class="btn btn-primary">Simpan Jadwal</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: Tambah / Edit Template Pekerjaan -->
+  <div class="modal-overlay" id="modalCreateTemplate">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-title" id="modalTemplateTitle">Tambah Template Pekerjaan Baru</div>
+        <button class="modal-close" data-close-modal="modalCreateTemplate" aria-label="Tutup">&times;</button>
+      </div>
+      <form id="formCreateTemplate">
+        <input type="hidden" id="tplId">
+        <div class="modal-body">
+          <div class="form-group">
+            <label class="form-label" for="tplName">Nama Template <span class="required">*</span></label>
+            <input type="text" id="tplName" class="form-control" placeholder="Contoh: Review Kepatuhan Bulanan" required>
+            <div style="font-size: 11.5px; color: var(--text-muted); margin-top: 3px;">Identitas atau nama template untuk memudahkan pencarian.</div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="tplTitlePattern">Pola Judul Pekerjaan <span class="required">*</span></label>
+            <input type="text" id="tplTitlePattern" class="form-control" placeholder="Contoh: Review Kepatuhan - Bulan Berjalan" required>
+            <div style="font-size: 11.5px; color: var(--text-muted); margin-top: 3px;">Judul pekerjaan yang dihasilkan ketika template digunakan.</div>
+          </div>
+
+          <div class="form-grid-2">
+            <div class="form-group">
+              <label class="form-label" for="tplCategory">Kategori</label>
+              <select id="tplCategory" class="form-control">
+                <option value="General">General</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="tplPriority">Prioritas Default</label>
+              <select id="tplPriority" class="form-control">
+                <option value="normal" selected>Normal</option>
+                <option value="low">Rendah</option>
+                <option value="high">Tinggi</option>
+                <option value="critical">Kritis</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="tplDescription">Deskripsi Template</label>
+            <textarea id="tplDescription" class="form-control" rows="2" placeholder="Uraian prosedur kepatuhan terkait..."></textarea>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="tplChecklist">Daftar Subtask / Checklist (1 Baris = 1 Item) <span class="required">*</span></label>
+            <textarea id="tplChecklist" class="form-control" rows="5" placeholder="Pengumpulan bukti transaksi&#10;Verifikasi identitas nasabah (CDD)&#10;Penyusunan draft laporan&#10;Persetujuan Pejabat Kepatuhan" required></textarea>
+            <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Setiap baris teks akan dijadikan satu subtask checklist otomatis.</div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-close-modal="modalCreateTemplate">Batal</button>
+          <button type="submit" id="btnSubmitTemplate" class="btn btn-primary">Simpan Template</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: Kelola Kategori (Dialog Pengelolaan Kategori Dinamis - ENHANCEMENT-001) -->
+  <div class="modal-overlay" id="modalManageCategories">
+    <div class="modal-card" style="max-width: 720px;">
+      <div class="modal-header">
+        <div class="modal-title">Kelola Master Kategori Kepatuhan</div>
+        <button class="modal-close" data-close-modal="modalManageCategories" aria-label="Tutup">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 10px;">
+          <p style="font-size: 13px; color: var(--text-muted); margin: 0;">
+            Kategori digunakan pada formulir penugasan, template, dan filter kepatuhan.
+          </p>
+          <button type="button" id="btnToggleAddCategoryForm" class="btn btn-primary btn-sm">
+            + Tambah Kategori Baru
+          </button>
+        </div>
+
+        <!-- Form Tambah / Edit Kategori (Collapsible) -->
+        <div id="categoryFormContainer" style="display: none; background: var(--bg-muted); border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 16px; margin-bottom: 16px;">
+          <form id="formSaveCategory">
+            <input type="hidden" id="manageCatId">
+            <h4 id="manageCatFormTitle" style="font-size: 14px; font-weight: 600; margin-bottom: 12px;">Tambah Kategori Baru</h4>
+            <div class="form-grid-2">
+              <div class="form-group">
+                <label class="form-label" for="manageCatName">Nama Kategori <span class="required">*</span></label>
+                <input type="text" id="manageCatName" class="form-control" placeholder="Contoh: Perlindungan Konsumen" required>
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="manageCatColor">Warna Label</label>
+                <div style="display: flex; gap: 8px; align-items: center;">
+                  <input type="color" id="manageCatColor" value="#0284c7" style="width: 42px; height: 36px; padding: 2px; border: 1px solid var(--border-color); border-radius: var(--radius-sm); cursor: pointer;">
+                  <span style="font-size: 12px; color: var(--text-muted);">Pilih warna identifikasi badge</span>
+                </div>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="manageCatDesc">Deskripsi Kategori</label>
+              <input type="text" id="manageCatDesc" class="form-control" placeholder="Keterangan singkat cakupan kategori...">
+            </div>
+            <div class="form-group" id="groupManageCatActive" style="display: none;">
+              <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer;">
+                <input type="checkbox" id="manageCatIsActive" checked>
+                <span>Status Aktif (dapat dipilih pada formulir pekerjaan baru)</span>
+              </label>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px;">
+              <button type="button" id="btnCancelCategoryForm" class="btn btn-secondary btn-sm">Batal</button>
+              <button type="submit" class="btn btn-primary btn-sm" id="btnSaveCategorySubmit">Simpan Kategori</button>
+            </div>
+          </form>
+        </div>
+
+        <!-- Tabel Daftar Kategori -->
+        <div class="table-responsive" style="max-height: 340px; overflow-y: auto;">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Nama Kategori</th>
+                <th>Deskripsi</th>
+                <th>Tipe</th>
+                <th>Status</th>
+                <th>Aksi</th>
+              </tr>
+            </thead>
+            <tbody id="manageCategoryTableBody">
+              <tr><td colspan="5" class="empty-state">Memuat master kategori...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-close-modal="modalManageCategories">Tutup</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Detail Batch Impor -->
+  <div class="modal-overlay" id="modalImportBatchDetail">
+    <div class="modal-card" style="max-width: 840px;">
+      <div class="modal-header">
+        <div class="modal-title" id="importBatchDetailTitle">Detail Riwayat Impor</div>
+        <button class="modal-close" data-close-modal="modalImportBatchDetail" aria-label="Tutup">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div id="importBatchMetaInfo" style="background-color: var(--bg-muted); padding: 12px; border-radius: var(--radius-sm); margin-bottom: 16px; font-size: 13px;"></div>
+        <h4 style="font-size: 13.5px; font-weight: 600; margin-bottom: 10px;">Item / Baris Pekerjaan yang Diproses:</h4>
+        <div class="table-responsive" style="max-height: 360px; overflow-y: auto;">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Baris</th>
+                <th>Status</th>
+                <th>Kode / Judul</th>
+                <th>Pemberi Tugas</th>
+                <th>Tgl Diterima</th>
+                <th>Catatan / Pesan</th>
+              </tr>
+            </thead>
+            <tbody id="importBatchItemsTableBody">
+              <tr><td colspan="6" class="empty-state">Memuat item batch...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-close-modal="modalImportBatchDetail">Tutup</button>
+      </div>
+    </div>
+  </div>
+
   <!-- MODAL: Konfirmasi Reusable -->
   <div class="modal-overlay" id="modalConfirm">
     <div class="modal-card" style="max-width: 440px;">
@@ -667,6 +1409,87 @@
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-close-modal="modalConfirm">Batal</button>
         <button type="button" id="btnConfirmAction" class="btn btn-primary">Lanjutkan</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Hapus Permanen Pekerjaan -->
+  <div class="modal-overlay" id="modalPermanentDeleteWork">
+    <div class="modal-card" style="max-width: 540px;">
+      <div class="modal-header" style="border-bottom-color: var(--danger, #dc2626);">
+        <div class="modal-title" style="color: var(--danger, #dc2626); display: flex; align-items: center; gap: 8px;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+            <line x1="12" y1="9" x2="12" y2="13"/>
+            <line x1="12" y1="17" x2="12.01" y2="17"/>
+          </svg>
+          Hapus Permanen Pekerjaan
+        </div>
+        <button class="modal-close" data-close-modal="modalPermanentDeleteWork" aria-label="Tutup">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="alert alert-danger" style="margin-bottom: 16px; font-size: 13px; line-height: 1.5; background-color: #fef2f2; border: 1px solid #fecaca; color: #991b1b; padding: 12px; border-radius: var(--radius-sm);">
+          <strong>PERHATIAN:</strong> Tindakan ini permanen dan tidak dapat dibatalkan. Riwayat aktivitas (audit trail) akan tetap dipertahankan untuk kebutuhan audit, namun data pekerjaan dan subtask terkait akan dihapus secara permanen.
+        </div>
+        <div style="background-color: var(--bg-muted); padding: 12px; border-radius: var(--radius-sm); margin-bottom: 16px; font-size: 13px;">
+          <div style="display: grid; grid-template-columns: 140px 1fr; row-gap: 6px; column-gap: 8px;">
+            <span style="color: var(--text-muted); font-weight: 500;">Kode Pekerjaan:</span>
+            <span style="font-weight: 700;" id="deleteWorkCodeDisplay">-</span>
+            <span style="color: var(--text-muted); font-weight: 500;">Judul Pekerjaan:</span>
+            <span style="font-weight: 600;" id="deleteWorkTitleDisplay">-</span>
+          </div>
+        </div>
+        <div style="background-color: #fff; border: 1px solid #fecaca; padding: 12px; border-radius: var(--radius-sm); font-size: 13px;">
+          <label style="display: flex; align-items: flex-start; gap: 8px; cursor: pointer; margin-bottom: 0; color: #991b1b; line-height: 1.5;">
+            <input type="checkbox" id="checkAcknowledgeDeleteWork" style="margin-top: 3px;">
+            <span>Saya memahami bahwa pekerjaan ini akan dihapus dari daftar operasional, subtask terkait dihapus, dan riwayat aktivitas tetap dipertahankan untuk kebutuhan audit. Saya menyetujui tindakan ini.</span>
+          </label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-close-modal="modalPermanentDeleteWork">Batal</button>
+        <button type="button" id="btnExecutePermanentDelete" class="btn btn-danger" disabled>
+          Hapus Permanen
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Pemulihan Basis Data -->
+  <div class="modal-overlay" id="modalRestoreConfirm">
+    <div class="modal-card" style="max-width: 580px;">
+      <div class="modal-header">
+        <div class="modal-title" style="display: flex; align-items: center; gap: 8px;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="1 4 1 10 7 10"/>
+            <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>
+          </svg>
+          Pemulihan Basis Data
+        </div>
+        <button class="modal-close" data-close-modal="modalRestoreConfirm" aria-label="Tutup">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="alert alert-warning" style="margin-bottom: 16px; font-size: 13px; line-height: 1.5; background-color: #fffbeb; border: 1px solid #fef3c7; color: #92400e; padding: 12px; border-radius: var(--radius-sm);">
+          <strong>PERINGATAN:</strong> Pemulihan database akan menimpa seluruh rekaman aktif saat ini dengan data dari berkas cadangan. Pastikan Anda telah memilih berkas cadangan yang tepat.
+        </div>
+        <div style="background-color: var(--bg-muted); padding: 12px; border-radius: var(--radius-sm); margin-bottom: 16px; font-size: 13px;">
+          <div style="display: grid; grid-template-columns: 140px 1fr; row-gap: 6px; column-gap: 8px;">
+            <span style="color: var(--text-muted); font-weight: 500;">Berkas Cadangan:</span>
+            <span style="font-weight: 700; word-break: break-all;" id="restoreBackupFilenameDisplay">-</span>
+          </div>
+        </div>
+        <div id="restoreAcknowledgmentSection" style="background-color: #fffbeb; border: 1px solid #fef3c7; padding: 12px; border-radius: var(--radius-sm); font-size: 13px;">
+          <label style="display: flex; align-items: flex-start; gap: 8px; cursor: pointer; margin-bottom: 0; color: #92400e; line-height: 1.5;">
+            <input type="checkbox" id="checkAcknowledgeRestoreRisk" style="margin-top: 3px;">
+            <span>Saya memahami bahwa pemulihan ini akan menimpa basis data aktif dan tidak dapat dibatalkan melalui aplikasi. Salinan pengaman otomatis akan dibuat sebelum pemulihan.</span>
+          </label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-close-modal="modalRestoreConfirm">Batal</button>
+        <button type="button" id="btnExecuteRestore" class="btn btn-primary" disabled>
+          Mulai Pemulihan
+        </button>
       </div>
     </div>
   </div>

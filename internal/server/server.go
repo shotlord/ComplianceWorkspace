@@ -26,9 +26,17 @@ type Server struct {
 	workItemService *service.WorkItemService
 	backupService   *service.BackupService
 	exportService   *service.ExportService
+	taskMgmtService *service.TaskManagementService
+	importService   *service.ImportService
 }
 
-func NewServer(addr string, workItemService *service.WorkItemService, backupService *service.BackupService, exportService *service.ExportService) (*Server, error) {
+func NewServer(
+	addr string,
+	workItemService *service.WorkItemService,
+	backupService *service.BackupService,
+	exportService *service.ExportService,
+	optionalServices ...interface{},
+) (*Server, error) {
 	// Pastikan binding hanya ke 127.0.0.1
 	if !strings.HasPrefix(addr, "127.0.0.1:") {
 		return nil, errors.New("keamanan: server hanya diizinkan mengikat ke 127.0.0.1")
@@ -39,11 +47,25 @@ func NewServer(addr string, workItemService *service.WorkItemService, backupServ
 		return nil, fmt.Errorf("gagal mendengarkan pada %s: %w", addr, err)
 	}
 
+	var tmSvc *service.TaskManagementService
+	var impSvc *service.ImportService
+
+	for _, opt := range optionalServices {
+		switch s := opt.(type) {
+		case *service.TaskManagementService:
+			tmSvc = s
+		case *service.ImportService:
+			impSvc = s
+		}
+	}
+
 	s := &Server{
 		listener:        ln,
 		workItemService: workItemService,
 		backupService:   backupService,
 		exportService:   exportService,
+		taskMgmtService: tmSvc,
+		importService:   impSvc,
 	}
 
 	mux := http.NewServeMux()
@@ -91,16 +113,55 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/work-items/{id}", s.handleUpdateWorkItem)
 	mux.HandleFunc("POST /api/work-items/{id}/archive", s.handleArchiveWorkItem)
 	mux.HandleFunc("POST /api/work-items/{id}/restore", s.handleRestoreWorkItem)
+	mux.HandleFunc("GET /api/work-items/{id}/delete-preview", s.handleGetWorkItemDeletePreview)
+	mux.HandleFunc("DELETE /api/work-items/{id}", s.handlePermanentDeleteWorkItem)
 
 	// Endpoint Activity Log
 	mux.HandleFunc("POST /api/work-items/{id}/activities", s.handleAddActivity)
 	mux.HandleFunc("GET /api/work-items/{id}/activities", s.handleListActivities)
+
+	// Endpoint Subtask, Checklist, Kategori, Template & Recurring (Sprint 2)
+	if s.taskMgmtService != nil {
+		// Subtask & Checklist
+		mux.HandleFunc("GET /api/work-items/{id}/subtasks", s.handleListSubtasks)
+		mux.HandleFunc("POST /api/work-items/{id}/subtasks", s.handleCreateSubtask)
+		mux.HandleFunc("PUT /api/subtasks/{id}", s.handleUpdateSubtask)
+		mux.HandleFunc("DELETE /api/subtasks/{id}", s.handleDeleteSubtask)
+
+		// Categories
+		mux.HandleFunc("GET /api/categories", s.handleListCategories)
+		mux.HandleFunc("POST /api/categories", s.handleCreateCategory)
+		mux.HandleFunc("PUT /api/categories/{id}", s.handleUpdateCategory)
+		mux.HandleFunc("DELETE /api/categories/{id}", s.handleDeleteCategory)
+
+		// Work Templates
+		mux.HandleFunc("GET /api/templates", s.handleListTemplates)
+		mux.HandleFunc("GET /api/templates/{id}", s.handleGetTemplate)
+		mux.HandleFunc("POST /api/templates", s.handleCreateTemplate)
+		mux.HandleFunc("PUT /api/templates/{id}", s.handleUpdateTemplate)
+		mux.HandleFunc("DELETE /api/templates/{id}", s.handleDeleteTemplate)
+		mux.HandleFunc("POST /api/templates/{id}/apply", s.handleApplyTemplate)
+
+		// Recurring Tasks
+		mux.HandleFunc("GET /api/recurring-schedules", s.handleListRecurringSchedules)
+		mux.HandleFunc("POST /api/recurring-schedules", s.handleCreateRecurringSchedule)
+		mux.HandleFunc("PUT /api/recurring-schedules/{id}", s.handleUpdateRecurringSchedule)
+		mux.HandleFunc("DELETE /api/recurring-schedules/{id}", s.handleDeleteRecurringSchedule)
+		mux.HandleFunc("POST /api/recurring-schedules/trigger", s.handleTriggerRecurring)
+	}
 
 	// Endpoint Backup & Restore
 	if s.backupService != nil {
 		mux.HandleFunc("GET /api/backups", s.handleListBackups)
 		mux.HandleFunc("POST /api/backups", s.handleCreateBackup)
 		mux.HandleFunc("POST /api/backups/restore", s.handleRestoreBackup)
+		mux.HandleFunc("POST /api/backup/restore", s.handleRestoreBackup)
+		mux.HandleFunc("GET /api/backup/inspect", s.handleInspectBackup)
+		mux.HandleFunc("GET /api/backups/inspect", s.handleInspectBackup)
+		mux.HandleFunc("DELETE /api/backup/{filename}", s.handleDeleteBackup)
+		mux.HandleFunc("DELETE /api/backups/{filename}", s.handleDeleteBackup)
+		mux.HandleFunc("POST /api/backup/delete-batch", s.handleBatchDeleteBackups)
+		mux.HandleFunc("POST /api/backups/delete-batch", s.handleBatchDeleteBackups)
 	}
 
 	// Endpoint Ekspor CSV
@@ -109,9 +170,31 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 		mux.HandleFunc("GET /api/export/activity-logs", s.handleExportActivityLogs)
 	}
 
+	// Endpoint Data Import Center (Sprint 3)
+	if s.importService != nil {
+		mux.HandleFunc("POST /api/import/preview", s.handleImportPreview)
+		mux.HandleFunc("POST /api/import/commit", s.handleImportCommit)
+		mux.HandleFunc("GET /api/import/history", s.handleListImportHistory)
+		mux.HandleFunc("GET /api/import/batches/{id}", s.handleGetImportBatch)
+		mux.HandleFunc("POST /api/import/batches/{id}/compensate", s.handleCompensateImportBatch)
+		mux.HandleFunc("GET /api/import/batches/{id}/error-report", s.handleGetImportErrorReport)
+		mux.HandleFunc("GET /api/import/template/csv", s.handleGetCSVTemplate)
+		mux.HandleFunc("GET /api/import/template/xlsx", s.handleGetXLSXTemplate)
+	}
+
 	// Aset Frontend Statis (Embedded)
 	sub, err := fs.Sub(web.StaticFS, "static")
 	if err == nil {
+		mux.HandleFunc("GET /favicon.ico", func(w http.ResponseWriter, r *http.Request) {
+			icoData, err := fs.ReadFile(sub, "favicon.ico")
+			if err != nil {
+				http.NotFound(w, r)
+				return
+			}
+			w.Header().Set("Content-Type", "image/x-icon")
+			w.Header().Set("Cache-Control", "public, max-age=86400")
+			_, _ = w.Write(icoData)
+		})
 		mux.Handle("/", http.FileServer(http.FS(sub)))
 	}
 }
@@ -163,6 +246,7 @@ func (s *Server) handleListWorkItems(w http.ResponseWriter, r *http.Request) {
 		Category:        q.Get("category"),
 		Search:          q.Get("search"),
 		IncludeArchived: q.Get("include_archived") == "true" || q.Get("include_archived") == "1",
+		Provenance:      q.Get("provenance"),
 		SortBy:          q.Get("sort_by"),
 		SortOrder:       q.Get("sort_order"),
 	}
@@ -393,3 +477,131 @@ func (s *Server) handleExportActivityLogs(w http.ResponseWriter, r *http.Request
 		log.Printf("[ERROR] Ekspor CSV log aktivitas gagal: %v", err)
 	}
 }
+
+func (s *Server) handleGetWorkItemDeletePreview(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil || id <= 0 {
+		errorResponse(w, http.StatusBadRequest, "ID pekerjaan tidak valid")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	preview, err := s.workItemService.GetDeletePreview(ctx, id)
+	if err != nil {
+		if strings.Contains(err.Error(), "tidak ditemukan") {
+			errorResponse(w, http.StatusNotFound, err.Error())
+		} else {
+			errorResponse(w, http.StatusBadRequest, err.Error())
+		}
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, preview)
+}
+
+func (s *Server) handlePermanentDeleteWorkItem(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil || id <= 0 {
+		errorResponse(w, http.StatusBadRequest, "ID pekerjaan tidak valid")
+		return
+	}
+
+	var req struct {
+		ConfirmCode string `json:"confirm_code"`
+	}
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+	if req.ConfirmCode == "" {
+		req.ConfirmCode = r.URL.Query().Get("confirm_code")
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	deletedItem, err := s.workItemService.PermanentDeleteWorkItem(ctx, id, req.ConfirmCode)
+	if err != nil {
+		if strings.Contains(err.Error(), "tidak ditemukan") {
+			errorResponse(w, http.StatusNotFound, err.Error())
+		} else {
+			errorResponse(w, http.StatusBadRequest, err.Error())
+		}
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"message":   fmt.Sprintf("Pekerjaan '%s' (%s) berhasil dihapus secara permanen.", deletedItem.Title, deletedItem.WorkCode),
+		"work_code": deletedItem.WorkCode,
+	})
+}
+
+func (s *Server) handleInspectBackup(w http.ResponseWriter, r *http.Request) {
+	filename := r.URL.Query().Get("filename")
+	if strings.TrimSpace(filename) == "" {
+		errorResponse(w, http.StatusBadRequest, "Parameter filename wajib disertakan")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+
+	inspection, err := s.backupService.InspectBackup(ctx, filename)
+	if err != nil {
+		if strings.Contains(err.Error(), "tidak ditemukan") {
+			errorResponse(w, http.StatusNotFound, err.Error())
+		} else {
+			errorResponse(w, http.StatusBadRequest, err.Error())
+		}
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, inspection)
+}
+
+func (s *Server) handleDeleteBackup(w http.ResponseWriter, r *http.Request) {
+	filename := r.PathValue("filename")
+	if strings.TrimSpace(filename) == "" {
+		filename = r.URL.Query().Get("filename")
+	}
+	if strings.TrimSpace(filename) == "" {
+		errorResponse(w, http.StatusBadRequest, "Nama berkas cadangan wajib disertakan")
+		return
+	}
+
+	if err := s.backupService.DeleteBackup(r.Context(), filename); err != nil {
+		if strings.Contains(err.Error(), "tidak ditemukan") {
+			errorResponse(w, http.StatusNotFound, err.Error())
+		} else {
+			errorResponse(w, http.StatusBadRequest, err.Error())
+		}
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]string{
+		"message":  fmt.Sprintf("Berkas cadangan '%s' berhasil dihapus.", filename),
+		"filename": filename,
+	})
+}
+
+func (s *Server) handleBatchDeleteBackups(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Filenames []string `json:"filenames"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		errorResponse(w, http.StatusBadRequest, "Format JSON tidak valid")
+		return
+	}
+
+	result, err := s.backupService.DeleteBackups(r.Context(), req.Filenames)
+	if err != nil {
+		errorResponse(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, result)
+}
+

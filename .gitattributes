@@ -1,0 +1,38 @@
+# Compliance Workspace - Git Attributes
+# Enforce consistent line endings across platforms and protect binary assets.
+
+# Default: auto-detect text files and normalize to LF
+* text=auto eol=lf
+
+# Source code and web assets
+*.go text eol=lf
+*.sql text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+*.js text eol=lf
+*.json text eol=lf
+*.mod text eol=lf
+*.sum text eol=lf
+
+# Documentation and text files
+*.md text eol=lf
+*.txt text eol=lf
+.gitignore text eol=lf
+.gitattributes text eol=lf
+
+# Windows PowerShell scripts
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary resources and archives
+*.ico binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.exe binary
+*.zip binary
+*.syso binary
+*.db binary
+*.sqlite binary
+*.sqlite3 binary

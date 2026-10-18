@@ -1,67 +1,78 @@
-# Compliance Workspace v1.0
+# Compliance Workspace v1.1.0
 
-Aplikasi web lokal, mandiri (*portable*), dan *offline-first* yang dirancang khusus untuk **Compliance Officer** guna mencatat penugasan kepatuhan (*Work Items*) serta jejak audit aktivitas (*Activity Log*) secara terstruktur, aman, dan tanpa biaya operasional.
+Aplikasi web lokal, mandiri (*portable*), dan *offline-first* yang dirancang khusus untuk **Compliance Officer** guna mengelola pencatatan penugasan kepatuhan (*Work Items*), subtask & checklist, manajemen kategori, template pekerjaan, tugas berulang (*recurring tasks*), pusat impor massal (*Data Import Center*), serta jejak audit aktivitas (*Activity Log*) secara terstruktur, aman, dan tanpa biaya operasional.
 
 ---
 
 ## Daftar Isi
 - [Ikhtisar](#ikhtisar)
-- [Fitur Utama](#fitur-utama)
+- [Fitur Utama v1.1.0](#fitur-utama-v110)
 - [Teknologi yang Digunakan](#teknologi-yang-digunakan)
 - [Persyaratan Sistem](#persyaratan-sistem)
-- [Cara Memperoleh Executable (GitHub Releases)](#cara-memperoleh-executable-github-releases)
+- [Unduhan Aplikasi (GitHub Releases)](#unduhan-aplikasi-github-releases)
 - [Cara Menjalankan Aplikasi](#cara-menjalankan-aplikasi)
-- [Cara Melakukan Build Portabel Mandiri](#cara-melakukan-build-portabel-mandiri)
-- [Pencadangan (Backup) & Pemulihan (Restore)](#pencadangan-backup--pemulihan-restore)
-- [Ekspor Laporan (CSV Kompatibel Excel)](#ekspor-laporan-csv-kompatibel-excel)
+- [Kompilasi & Pengujian Ringkas](#kompilasi--pengujian-ringkas)
+- [Lokasi Penyimpanan Data & Cadangan](#lokasi-penyimpanan-data--cadangan)
 - [Keamanan & Privasi](#keamanan--privasi)
-- [Dokumentasi Lanjutan](#dokumentasi-lanjutan)
+- [Dokumentasi Teknis Terkait](#dokumentasi-teknis-terkait)
 
 ---
 
 ## Ikhtisar
 
-Compliance Workspace v1.0 dibangun untuk menjawab kebutuhan pelacakan aktivitas kepatuhan yang portabel dan dapat dipindahkan antar-laptop tanpa memerlukan instalasi interpreter bahasa (seperti Python), lingkungan Node.js, layanan server database eksternal, maupun ketergantungan pada koneksi internet dan cloud API berbayar.
+Compliance Workspace v1.1.0 dibangun untuk menjawab kebutuhan pelacakan aktivitas kepatuhan yang portabel dan dapat dipindahkan antar-laptop tanpa memerlukan instalasi interpreter bahasa (seperti Python), lingkungan Node.js, layanan server database eksternal, maupun ketergantungan pada koneksi internet dan cloud API berbayar.
 
-Seluruh antarmuka web modern telah disematkan langsung ke dalam biner eksekusi (*single executable binary*), dan basis data disimpan secara lokal menggunakan mesin SQLite murni dalam folder `data/` yang diresolusi relatif terhadap lokasi biner fisik.
+Seluruh antarmuka web modern disematkan langsung ke dalam biner eksekusi (*single executable binary*) dengan ikon Windows resmi, dan basis data disimpan secara lokal menggunakan mesin SQLite murni dalam folder `data/` yang diresolusi relatif terhadap lokasi biner fisik.
 
 ---
 
-## Fitur Utama
+## Fitur Utama v1.1.0
 
 ### 1. Dashboard Ringkasan Kepatuhan
-- Metrik visual seketika untuk: Total Pekerjaan, Belum Mulai, Dalam Proses, Menunggu, Selesai, dan Melewati Deadline (*Overdue*).
+- Metrik visual seketika: Total Pekerjaan, Belum Mulai, Dalam Proses, Menunggu, Selesai, dan Melewati Deadline (*Overdue*).
 - Indikator peringatan dini untuk pekerjaan yang membutuhkan perhatian segera.
+- Kalkulasi progres rata-rata seluruh pekerjaan kepatuhan aktif.
 
-### 2. Work Register (Pencatatan Penugasan)
-- Manajemen siklus hidup pekerjaan: Pembuatan, Peninjauan Rincian, Pembaruan Informasi, dan Pengarsipan (*Archive/Soft Delete*).
+### 2. Work Register & Task Enhancement
+- Manajemen siklus hidup penugasan kepatuhan: Pembuatan, Peninjauan Rincian, Pembaruan Informasi, dan Pengarsipan (*Soft Delete*).
 - Kode penugasan unik berurutan otomatis: format **`CMP-YYYY-NNNNNN`** (misal: `CMP-2026-000001`).
-- Atribut lengkap: Judul, Deskripsi, Kategori, Pemberi Tugas, Tanggal Diterima, Batas Waktu (*Due Date*), Prioritas (*Low*, *Normal*, *High*, *Critical*), dan Status.
-- Fasilitas pencarian teks bebas instan serta penyaringan multibaris (*multi-filter*) berdasarkan status, kategori, dan prioritas.
+- **Subtask & Checklist**: Merinci setiap penugasan ke dalam langkah kerja terukur yang dapat dicentang secara bertahap.
+- **Kalkulasi Otomatis Progres**: Persentase progres (`progress_percentage`: 0% - 100%) dihitung otomatis berbasis rasio subtask selesai atau estimasi status pekerjaan.
+- **Master Kategori**: Pengelolaan klasifikasi pekerjaan dengan warna visual kustom dan status aktif/non-aktif.
+- **Work Templates**: Pembuatan cetak biru penugasan berulang lengkap dengan checklist bawaan dan durasi estimasi.
+- **Recurring Tasks**: Penjadwalan pekerjaan rutin otomatis (harian, mingguan, bulanan, kuartalan, tahunan) dengan proteksi *idempotency* anti-duplikasi.
+- **Penghapusan Aman Berbasis Audit**: Dukungan penghapusan permanen operasional via penanda *tombstone* (`deleted_at`), membersihkan subtask, dan tetap mengabadikan log audit untuk kebutuhan pengawasan regulator.
 
-### 3. Activity Log (Jejak Audit Kronologis)
-- Garis waktu aktivitas (*timeline*) per pekerjaan yang bersifat **append-only** (tidak dapat dihapus atau ditimpa).
-- Pencatatan otomatis oleh sistem setiap kali terjadi pembuatan pekerjaan, perubahan status, pengeditan atribut, pengarsipan, atau pemulihan.
-- Formulir penambahan catatan progres manual oleh petugas.
+### 3. Data Import Center (CSV & Excel XLSX)
+- Wizard 4 tahap: Pilih Berkas -> Pemetaan Kolom -> Pratinjau & Validasi (Dry-Run) -> Komit & Ringkasan.
+- Mendukung berkas spreadsheet Microsoft Excel (`.xlsx`) dan CSV (dengan/tanpa UTF-8 BOM).
+- Pemetaan kolom cerdas (*auto-suggest mapping*) untuk mempermudah migrasi data spreadsheet.
+- Validasi read-only pada tahap pratinjau tanpa memodifikasi basis data.
+- Deteksi duplikasi ganda: duplikasi dalam berkas yang sama (*in-file*) dan duplikasi terhadap basis data SQLite existing berbasis kombinasi `Judul + Tanggal Diterima + Pemberi Tugas`.
+- Snapshot cadangan otomatis (*pre-commit backup safety*) sebelum transaksi impor dikomit.
+- Riwayat batch impor dan fasilitas pembatalan kompensasi (*Compensate Rollback*) aman.
+
+### 4. Activity Log (Jejak Audit Kronologis)
+- Garis waktu aktivitas (*timeline*) per pekerjaan yang bersifat **append-only** (tidak dapat diubah atau dihapus).
+- Pencatatan otomatis oleh sistem setiap kali terjadi pembuatan pekerjaan, perubahan status, penambahan/penyelesaian subtask, impor batch, pengarsipan, atau pemulihan.
 - Dilindungi oleh trigger database SQLite `RAISE(ABORT)` untuk mencegah manipulasi data riwayat audit.
 
-### 4. Deadline Tracker (Pelacak Tenggat Waktu)
+### 5. Deadline Tracker (Pelacak Tenggat Waktu)
 - Pengelompokan tugas berdasarkan urgensi:
   - **Terlambat (*Overdue*)**: Pekerjaan yang telah melampaui tenggat waktu.
   - **Jatuh Tempo Hari Ini**: Penugasan yang harus diselesaikan pada hari berjalan.
   - **Tujuh Hari Mendatang**: Pekerjaan yang mendekati tenggat dalam 7 hari ke depan.
   - **Tanpa Deadline**: Pekerjaan berkategori fleksibel tanpa tanggal target.
-- Pekerjaan yang telah selesai (*completed*) atau dibatalkan (*cancelled*) otomatis dikeluarkan dari penghitungan deadline aktif.
 
-### 5. Settings, Backup & Restore
+### 6. Settings, Backup & Restore
 - Pencadangan konsisten database SQLite menggunakan perintah mesin `VACUUM INTO` ke folder `backups/`.
-- Verifikasi integritas otomatis pada setiap berkas cadangan melalui `PRAGMA integrity_check`.
-- Pemulihan (*restore*) aman bertingkat yang otomatis membuat salinan darurat (*safety snapshot*) dari database aktif sebelum penggantian data dilakukan.
-- Pengaturan preferensi zona waktu tampilan (default: `Asia/Jakarta`).
+- Verifikasi integritas otomatis pada setiap berkas cadangan melalui `PRAGMA integrity_check` dan validasi versi skema.
+- Pemulihan (*restore*) instan tanpa mematikan aplikasi dengan pembuatan salinan darurat otomatis (*safety snapshot*) sebelum database ditimpa.
+- Manajemen siklus hidup berkas cadangan: penghapusan berkas usang secara tunggal maupun massal dengan jaminan retensi minimal 1 berkas cadangan valid.
 
-### 6. Ekspor Data Excel (CSV dengan BOM)
+### 7. Ekspor Laporan Excel (CSV dengan BOM)
 - Ekspor seluruh daftar pekerjaan atau log aktivitas ke format CSV standar.
-- Disertai **UTF-8 Byte Order Mark (BOM)** agar langsung terbuka rapi dengan format teks dan karakter non-ASCII yang benar pada Microsoft Excel.
+- Disertai **UTF-8 Byte Order Mark (BOM)** agar langsung terbuka rapi pada Microsoft Excel tanpa teks berantakan.
 - Proteksi aktif terhadap ancaman **CSV Formula Injection** (`=`, `+`, `-`, `@`, `\t`, `\r`).
 
 ---
@@ -70,6 +81,7 @@ Seluruh antarmuka web modern telah disematkan langsung ke dalam biner eksekusi (
 
 - **Bahasa Pemrograman**: Go 1.22+ (Standard Library `net/http`, `database/sql`, `embed`).
 - **Driver Basis Data**: `modernc.org/sqlite` (Pure Go, 100% tanpa CGO / C-Compiler).
+- **Pemrosesan Spreadsheet**: `github.com/xuri/excelize/v2` (Pure Go).
 - **Frontend**: HTML5, CSS3 murni, dan Vanilla JavaScript (ES6+), disematkan melalui Go `embed`.
 - **Ketergantungan Eksternal di Runtime**: **Nol (Zero-dependency)** — tidak membutuhkan CDN, Node.js, Python, atau font daring.
 
@@ -77,28 +89,26 @@ Seluruh antarmuka web modern telah disematkan langsung ke dalam biner eksekusi (
 
 ## Persyaratan Sistem
 
-- **Sistem Operasi**: Windows 10 atau Windows 11 (64-bit / x64). *(Build Linux & macOS dapat dikompilasi dari sumber)*.
+- **Sistem Operasi**: Windows 10 atau Windows 11 (64-bit / x64).
 - **Hak Akses**: Hak pengguna standar (Non-Administrator dapat menjalankan).
-- **Peramban Web**: Microsoft Edge, Google Chrome, Mozilla Firefox, atau peramban web modern lainnya.
+- **Peramban Web**: Microsoft Edge, Google Chrome, Mozilla Firefox, atau peramban modern lainnya.
 - **Koneksi Jaringan**: 100% Offline (tidak memerlukan sambungan internet).
 
 ---
 
-## Cara Memperoleh Executable (GitHub Releases)
+## Unduhan Aplikasi (GitHub Releases)
 
 Pengguna akhir tidak perlu menginstal Go atau mengompilasi kode program:
 
-1. Buka halaman **Releases** pada repositori GitHub proyek ini:
-   `https://github.com/<owner>/compliance-workspace/releases`
-2. Temukan rilis stabil terbaru (misalnya `v1.0.0`).
-3. Unduh berkas arsip distribusi:
-   **`ComplianceWorkspace-v1.0-Windows-x64.zip`**
-4. *(Disarankan)* Unduh berkas **`checksums-sha256.txt`** dan verifikasi keaslian biner di PowerShell:
+1. Buka halaman **Releases** pada repositori GitHub resmi:
+   [https://github.com/shotlord/ComplianceWorkspace/releases](https://github.com/shotlord/ComplianceWorkspace/releases)
+2. Unduh paket distribusi portabel terbaru:
+   **`ComplianceWorkspace-v1.1.0-Windows-x64.zip`**
+3. *(Disarankan)* Unduh berkas **`checksums-sha256.txt`** dan verifikasi keaslian paket di PowerShell:
    ```powershell
-   Get-FileHash .\ComplianceWorkspace-v1.0-Windows-x64.zip -Algorithm SHA256
+   Get-FileHash .\ComplianceWorkspace-v1.1.0-Windows-x64.zip -Algorithm SHA256
    ```
-   Pastikan nilai *hash* cocok dengan yang tercantum pada rilis resmi.
-5. Ekstrak berkas ZIP ke direktori penyimpanan lokal (misalnya `C:\Users\<Nama>\Documents\ComplianceWorkspace`).
+4. Ekstrak berkas ZIP ke direktori lokal pilihan Anda (misalnya `D:\ComplianceWorkspace` atau folder Documents).
 
 ---
 
@@ -106,75 +116,65 @@ Pengguna akhir tidak perlu menginstal Go atau mengompilasi kode program:
 
 ### Metode 1: Menggunakan Executable Rilis Portabel
 
-1. Buka folder hasil ekstrak (`ComplianceWorkspace-v1.0-Windows-x64`).
+1. Buka folder hasil ekstrak (`ComplianceWorkspace-v1.1.0-Windows-x64`).
 2. Klik ganda pada berkas **`ComplianceWorkspace.exe`**.
-3. Jendela konsol akan menampilkan informasi server aktif, misalnya:
+3. Konsol akan menampilkan alamat server lokal aktif:
    ```text
    [INFO] Server aktif dan mendengarkan pada: http://127.0.0.1:54321
    ```
-4. Buka peramban web Anda dan akses URL yang tertera tersebut.
-5. Untuk menentukan port tertentu, jalankan melalui terminal:
+4. Peramban web bawaan akan otomatis terbuka ke alamat tersebut.
+5. Untuk menentukan port tertentu melalui terminal:
    ```powershell
    .\ComplianceWorkspace.exe -port 8080
    ```
 6. Untuk menghentikan aplikasi, tekan `Ctrl + C` pada terminal atau tutup jendela konsol. Aplikasi akan melakukan penutupan tertib (*graceful shutdown*).
 
-> **Catatan Windows SmartScreen**: Karena aplikasi portabel ini didistribusikan tanpa sertifikat digital berbayar (EV Code Signing), Windows Defender SmartScreen mungkin menampilkan layar *"Windows protected your PC"*. Klik **More info** lalu klik tombol **Run anyway**.
+> **Catatan Windows SmartScreen**: Karena aplikasi portabel ini didistribusikan tanpa sertifikat digital komersial (EV Code Signing), Windows Defender SmartScreen mungkin menampilkan layar *"Windows protected your PC"*. Klik **More info** lalu pilih **Run anyway**.
 
 ### Metode 2: Menjalankan dari Source Code (Pengembang)
 
-1. Pastikan Go 1.22+ telah terinstal pada laptop pengembang.
-2. Clone atau buka repositori pada terminal.
+1. Pastikan Go 1.22+ terpasang pada komputer Anda.
+2. Buka terminal pada root direktori repositori.
 3. Jalankan perintah:
    ```powershell
    go run ./cmd/compliance-workspace
    ```
-4. Akses alamat `http://127.0.0.1:<port>` yang ditampilkan di log konsol.
+4. Buka URL `http://127.0.0.1:<port>` yang tertera pada konsol.
 
 ---
 
-## Cara Melakukan Build Portabel Mandiri
+## Kompilasi & Pengujian Ringkas
 
-Tersedia skrip PowerShell otomatis untuk menghasilkan paket distribusi rilis yang bersih:
+Untuk mengompilasi biner mandiri berikon resmi dan menjalankan seluruh pengujian otomatis:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\build-portable.ps1
+# 1. Jalankan unit test dan static checks
+go test -count=1 ./...
+go vet ./...
+
+# 2. Kompilasi biner Windows x64 dengan ikon resmi
+powershell -ExecutionPolicy Bypass -File .\scripts\build-windows.ps1
+
+# 3. Buat paket rilis portabel (ZIP dan checksums)
+powershell -ExecutionPolicy Bypass -File .\scripts\package-release.ps1
+
+# 4. Jalankan pengujian portabilitas menyeluruh (14 skenario)
+powershell -ExecutionPolicy Bypass -File .\scripts\run-smoke-test.ps1
 ```
 
-Skrip ini secara otomatis akan:
-1. Memvalidasi sintaks JavaScript dan menjalankan seluruh unit test Go (`go test ./...` dan `go vet ./...`).
-2. Mengompilasi biner mandiri Windows AMD64 dengan `CGO_ENABLED=0` dan optimasi `-ldflags "-s -w"`.
-3. Menyiapkan folder rilis `release/ComplianceWorkspace-v1.0-Windows-x64/` beserta folder kosong `data/`, `backups/`, dan `exports/`.
-4. Menyertakan dokumentasi `README.txt` dan `VERSION.txt`.
-5. Mengompresi paket ke `ComplianceWorkspace-v1.0-Windows-x64.zip`.
-6. Menghitung dan menyimpan nilai checksum SHA-256 ke `release/checksums-sha256.txt`.
-
-Untuk menguji hasil biner di sandbox terisolasi:
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\smoke-test-portable.ps1
-```
+Rincian lengkap langkah build dan pengujian dapat dipelajari pada [docs/BUILDING.md](docs/BUILDING.md) dan [docs/TESTING.md](docs/TESTING.md).
 
 ---
 
-## Pencadangan (Backup) & Pemulihan (Restore)
+## Lokasi Penyimpanan Data & Cadangan
 
-### Melalui Antarmuka Web
-1. Masuk ke menu **Pengaturan & Backup** pada bilah navigasi kiri.
-2. Klik tombol **Buat Cadangan Baru** untuk membuat snapshot konsisten SQLite.
-3. Untuk memulihkan data, pilih salah satu berkas dari daftar riwayat cadangan, lalu klik tombol **Pulihkan**. Sistem secara otomatis membuat salinan darurat dari database yang sedang berjalan sebelum melakukan pemulihan.
+Seluruh berkas operasional disimpan secara lokal relatif terhadap lokasi berkas executable `ComplianceWorkspace.exe`:
 
-### Pencadangan Manual (Folder Relokasi)
-Saat aplikasi sedang **tidak berjalan**, Anda dapat menyalin seluruh folder instalasi atau berkas `data/compliance.db` ke media penyimpanan eksternal. Untuk memindahkan ke laptop lain, cukup salin seluruh folder aplikasi ke laptop tujuan dan jalankan `ComplianceWorkspace.exe`.
+- **`data/compliance.db`**: Basis data utama SQLite. Dibuat dan dimigrasikan secara otomatis saat aplikasi pertama kali dijalankan.
+- **`backups/*.db`**: Berkas snapshot cadangan konsisten SQLite hasil perintah `VACUUM INTO` dan safety snapshot otomatis.
+- **`exports/*.csv`**: Folder tujuan ekspor laporan data pekerjaan dan log aktivitas.
 
----
-
-## Ekspor Laporan (CSV Kompatibel Excel)
-
-Aplikasi menyediakan fitur ekspor data pada menu **Pengaturan & Backup**:
-- **Ekspor Seluruh Pekerjaan (CSV)**: Menghasilkan tabel lengkap seluruh data pekerjaan compliance.
-- **Ekspor Riwayat Aktivitas (CSV)**: Menghasilkan laporan audit trail log aktivitas kronologis.
-
-Seluruh berkas CSV telah dilengkapi header UTF-8 BOM dan sanitasi karakter formula injection (`'`, `=`, `+`, `-`, `@`, `\t`, `\r`) demi keamanan analisis data pada spreadsheet.
+Untuk memindahkan aplikasi ke perangkat laptop lain, cukup matikan aplikasi dan salin seluruh folder aplikasi ke perangkat tujuan.
 
 ---
 
@@ -182,15 +182,17 @@ Seluruh berkas CSV telah dilengkapi header UTF-8 BOM dan sanitasi karakter formu
 
 - **Localhost Loopback Only**: Server hanya mengikat koneksi pada `127.0.0.1`. Koneksi dari perangkat lain pada jaringan lokal (LAN) maupun internet otomatis ditolak.
 - **Validasi Host & Origin**: Mencegah serangan DNS Rebinding dan manipulasi header request.
-- **Proteksi CSRF**: Memvalidasi token kriptografis acak `cw_csrf_token` pada setiap permintaan perubahan data.
-- **Content Security Policy (CSP)**: Mengunci eksekusi skrip hanya dari sumber internal lokal.
+- **Proteksi CSRF**: Memvalidasi token kriptografis acak `cw_csrf_token` pada setiap permintaan mutasi data (`POST`, `PUT`, `DELETE`).
+- **Content Security Policy (CSP)**: Mengunci eksekusi skrip hanya dari sumber internal lokal (`default-src 'self'`).
 - **Tanpa Telemetri**: Aplikasi sama sekali tidak mengumpulkan data penggunaan, analitik, atau berkomunikasi ke server pihak ketiga.
 
 ---
 
-## Dokumentasi Lanjutan
+## Dokumentasi Teknis Terkait
 
-Untuk informasi teknis mendalam mengenai arsitektur internal dan basis data, silakan pelajari berkas dokumentasi berikut:
-- **[docs/ARCHITECTURE.md](file:///c:/Users/AXIOO%20HYPE%203%20G12/Documents/ComplianceWorkspace/docs/ARCHITECTURE.md)**: Diagram arsitektur, pipeline middleware, spesifikasi endpoint REST API, dan alur komunikasi komponen.
-- **[docs/DATABASE.md](file:///c:/Users/AXIOO%20HYPE%203%20G12/Documents/ComplianceWorkspace/docs/DATABASE.md)**: Skema DDL tabel SQLite, indeks performa, transaksi atomik, trigger audit append-only, dan protokol pemulihan darurat.
-- **[CHANGELOG.md](file:///c:/Users/AXIOO%20HYPE%203%20G12/Documents/ComplianceWorkspace/CHANGELOG.md)**: Catatan riwayat rilis dan fitur baseline v1.0.0.
+Untuk pemahaman teknis mendalam mengenai arsitektur, basis data, dan tata kelola rilis:
+- **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**: Diagram arsitektur, pipeline middleware, spesifikasi endpoint REST API, dan alur data internal.
+- **[docs/DATABASE.md](docs/DATABASE.md)**: Skema DDL tabel SQLite, indeks performa, transaksi atomik, migrasi 001–006, dan pola tombstone penghapusan aman.
+- **[docs/BUILDING.md](docs/BUILDING.md)**: Prosedur kompilasi biner Windows x64, kompilasi resource ikon `go-winres`, dan packaging rilis.
+- **[docs/TESTING.md](docs/TESTING.md)**: Panduan eksekusi pengujian unit, integrasi, static checks, dan portable smoke test 14/14.
+- **[CHANGELOG.md](CHANGELOG.md)**: Catatan riwayat perubahan dan peningkatan setiap rilis.
