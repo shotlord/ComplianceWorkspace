@@ -6,7 +6,7 @@ Format berkas ini mengacu pada [Keep a Changelog](https://keepachangelog.com/id/
 
 ---
 
-## [1.1.1] - Unreleased
+## [1.1.1] - 2026-10-21
 
 Patch ini menyelesaikan Security Hardening Batch A–D serta perbaikan reliabilitas, pemulihan database, dan konsistensi antarmuka yang ditemukan selama QA dan UAT. Database schema tetap pada versi 6; patch ini tidak menambahkan atau mengubah skema database.
 

@@ -2,7 +2,7 @@
 
 ## Versi yang Didukung
 
-Selama v1.1.1 masih berstatus `Unreleased`, v1.1.0 adalah rilis stabil terakhir. Source, hasil UAT, atau executable kandidat tidak menjadi rilis stabil sampai Project Owner mengotorisasi packaging dan publikasi.
+v1.1.1 merupakan versi stabil terbaru yang didukung. v1.1.0 adalah versi sebelumnya; pengguna disarankan memperbarui ke v1.1.1 untuk memperoleh perbaikan keamanan dan reliabilitas.
 
 ## Melaporkan Kerentanan
 

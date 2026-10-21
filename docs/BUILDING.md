@@ -1,6 +1,6 @@
 # Panduan Kompilasi & Pembuatan Paket Rilis (Building)
 
-Dokumen ini menjelaskan build Windows x64 dan packaging portabel **Compliance Workspace v1.1.1**. Versi ini masih berstatus `Unreleased`; official build dan packaging hanya dilakukan setelah source freeze serta otorisasi Project Owner.
+Dokumen ini menjelaskan build Windows x64 dan packaging portabel **Compliance Workspace v1.1.1**. Final Windows build dan packaging v1.1.1 telah dilaksanakan setelah source freeze dan otorisasi Project Owner.
 
 ---
 
@@ -112,7 +112,7 @@ Skrip memverifikasi executable dan versi, tetapi tidak menyematkan atau membukti
 5. catat output metadata PE dan SHA-256;
 6. lakukan packaging hanya setelah otorisasi, lalu catat SHA-256 executable serta ZIP dari checksum version-specific.
 
-`BUILD_DATE=2026-10-20` pada `VERSION.txt` adalah metadata build yang saat ini disetujui dan tidak diubah oleh skrip. Kesesuaiannya dengan tanggal official release harus diputuskan Project Owner sebelum source freeze; dokumentasi ini tidak menetapkan tanggal rilis.
+`BUILD_DATE=2026-10-21` pada `VERSION.txt` mencatat tanggal final Windows build v1.1.1. File metadata ini disalin ke ZIP saat packaging dan tidak mengubah isi executable.
 
 ---
 

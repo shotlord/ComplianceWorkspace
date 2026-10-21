@@ -2,7 +2,7 @@
 
 Dokumen ini mendokumentasikan arsitektur teknis, desain komponen, mekanisme komunikasi, alur data, serta spesifikasi antarmuka API dari aplikasi **Compliance Workspace v1.1.1**.
 
-> **Patch v1.1.1 (Unreleased):** arsitektur utama dan schema v6 tetap dipertahankan. Patch menambahkan restore berbasis staging/atomic rename, koneksi inspeksi SQLite read-only, koordinasi operasi database saat restore, exact Host/Origin validation, request limits, dan HTTP timeouts.
+> **Patch v1.1.1:** arsitektur utama dan schema v6 tetap dipertahankan. Patch menambahkan restore berbasis staging/atomic rename, koneksi inspeksi SQLite read-only, koordinasi operasi database saat restore, exact Host/Origin validation, request limits, dan HTTP timeouts.
 
 ---
 

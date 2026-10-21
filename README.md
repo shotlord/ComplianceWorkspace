@@ -24,7 +24,7 @@ Compliance Workspace v1.1.1 dibangun untuk menjawab kebutuhan pelacakan aktivita
 
 Seluruh antarmuka web modern disematkan langsung ke dalam biner eksekusi (*single executable binary*) dengan ikon Windows resmi, dan basis data disimpan secara lokal menggunakan mesin SQLite murni dalam folder `data/` yang diresolusi relatif terhadap lokasi biner fisik.
 
-> **Status rilis:** source saat ini menargetkan v1.1.1 dengan heading changelog `Unreleased`. Hingga Project Owner mengotorisasi dan menerbitkan paket baru, v1.1.0 tetap menjadi rilis stabil yang tersedia bagi pengguna akhir.
+> **Status rilis:** v1.1.1 adalah versi stabil terbaru. Paket Windows x64 tersedia pada [GitHub Releases](https://github.com/shotlord/ComplianceWorkspace/releases/tag/v1.1.1).
 
 ---
 
@@ -104,11 +104,11 @@ Pengguna akhir tidak perlu menginstal Go atau mengompilasi kode program:
 
 1. Buka halaman **Releases** pada repositori GitHub resmi:
    [https://github.com/shotlord/ComplianceWorkspace/releases](https://github.com/shotlord/ComplianceWorkspace/releases)
-2. Unduh paket distribusi stabil terbaru (v1.1.0):
-   **`ComplianceWorkspace-v1.1.0-Windows-x64.zip`**
+2. Unduh paket distribusi stabil terbaru (v1.1.1):
+   **`ComplianceWorkspace-v1.1.1-Windows-x64.zip`**
 3. *(Disarankan)* Unduh berkas **`checksums-sha256.txt`** dan verifikasi keaslian paket di PowerShell:
    ```powershell
-   Get-FileHash .\ComplianceWorkspace-v1.1.0-Windows-x64.zip -Algorithm SHA256
+   Get-FileHash .\ComplianceWorkspace-v1.1.1-Windows-x64.zip -Algorithm SHA256
    ```
 4. Ekstrak berkas ZIP ke direktori lokal pilihan Anda (misalnya `D:\ComplianceWorkspace` atau folder Documents).
 
@@ -118,7 +118,7 @@ Pengguna akhir tidak perlu menginstal Go atau mengompilasi kode program:
 
 ### Metode 1: Menggunakan Executable Rilis Portabel
 
-1. Buka folder hasil ekstrak (`ComplianceWorkspace-v1.1.0-Windows-x64`).
+1. Buka folder hasil ekstrak (`ComplianceWorkspace-v1.1.1-Windows-x64`).
 2. Klik ganda pada berkas **`ComplianceWorkspace.exe`**.
 3. Konsol akan menampilkan alamat server lokal aktif:
    ```text
