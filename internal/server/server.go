@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log"
+	"mime"
 	"net"
 	"net/http"
 	"strconv"
@@ -17,6 +19,14 @@ import (
 	"compliance-workspace/internal/repository"
 	"compliance-workspace/internal/service"
 	"compliance-workspace/web"
+)
+
+const (
+	readHeaderTimeout = 5 * time.Second
+	readTimeout       = 30 * time.Second
+	writeTimeout      = 2 * time.Minute
+	idleTimeout       = 60 * time.Second
+	maxHeaderBytes    = 32 << 10
 )
 
 // Server membungkus HTTP server dan dependencies
@@ -37,8 +47,9 @@ func NewServer(
 	exportService *service.ExportService,
 	optionalServices ...interface{},
 ) (*Server, error) {
-	// Pastikan binding hanya ke 127.0.0.1
-	if !strings.HasPrefix(addr, "127.0.0.1:") {
+	// Pastikan binding tepat ke IPv4 loopback 127.0.0.1.
+	host, _, splitErr := net.SplitHostPort(addr)
+	if splitErr != nil || host != "127.0.0.1" {
 		return nil, errors.New("keamanan: server hanya diizinkan mengikat ke 127.0.0.1")
 	}
 
@@ -71,11 +82,23 @@ func NewServer(
 	mux := http.NewServeMux()
 	s.registerRoutes(mux)
 
-	// Pasang pipeline middleware keamanan
-	handler := HostValidatorMiddleware(SecurityHeadersMiddleware(CSRFAndOriginMiddleware(mux)))
+	// Pasang pipeline middleware keamanan dan koordinasi lifecycle database.
+	var handler http.Handler = mux
+	if backupService != nil {
+		handler = DatabaseOperationMiddleware(backupService.OperationGate(), handler)
+	}
+	handler = CSRFAndOriginMiddleware(ln.Addr().String(), handler)
+	handler = RequestBodyLimitMiddleware(handler)
+	handler = SecurityHeadersMiddleware(handler)
+	handler = HostValidatorMiddleware(ln.Addr().String(), handler)
 
 	s.httpServer = &http.Server{
-		Handler: handler,
+		Handler:           handler,
+		ReadHeaderTimeout: readHeaderTimeout,
+		ReadTimeout:       readTimeout,
+		WriteTimeout:      writeTimeout,
+		IdleTimeout:       idleTimeout,
+		MaxHeaderBytes:    maxHeaderBytes,
 	}
 
 	return s, nil
@@ -93,13 +116,14 @@ func (s *Server) Start() error {
 
 // Shutdown mematikan server dengan anggun (graceful shutdown) dan menutup koneksi basis data
 func (s *Server) Shutdown(ctx context.Context) error {
-	err := s.httpServer.Shutdown(ctx)
+	shutdownErr := s.httpServer.Shutdown(ctx)
+	var dbErr error
 	if s.workItemService != nil {
 		if db := s.workItemService.GetDB(); db != nil {
-			_ = db.Close()
+			dbErr = db.Close()
 		}
 	}
-	return err
+	return errors.Join(shutdownErr, dbErr)
 }
 
 func (s *Server) registerRoutes(mux *http.ServeMux) {
@@ -213,7 +237,35 @@ func errorResponse(w http.ResponseWriter, status int, message string) {
 	jsonResponse(w, status, map[string]string{"error": message})
 }
 
+func decodeJSONBody(w http.ResponseWriter, r *http.Request, dst interface{}) bool {
+	if contentType := strings.TrimSpace(r.Header.Get("Content-Type")); contentType != "" {
+		mediaType, _, err := mime.ParseMediaType(contentType)
+		if err != nil || mediaType != "application/json" {
+			errorResponse(w, http.StatusUnsupportedMediaType, "Content-Type harus application/json")
+			return false
+		}
+	}
+
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(dst); err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			errorResponse(w, http.StatusRequestEntityTooLarge, "Ukuran permintaan melebihi batas yang diizinkan")
+		} else {
+			errorResponse(w, http.StatusBadRequest, "Format JSON tidak valid")
+		}
+		return false
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		errorResponse(w, http.StatusBadRequest, "Permintaan hanya boleh memuat satu objek JSON")
+		return false
+	}
+	return true
+}
+
 func (s *Server) handleGetCSRFToken(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	cookie, err := r.Cookie(CSRFCookieName)
 	if err == nil && cookie.Value != "" {
 		jsonResponse(w, http.StatusOK, map[string]string{"csrf_token": cookie.Value})
@@ -224,8 +276,7 @@ func (s *Server) handleGetCSRFToken(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleCreateWorkItem(w http.ResponseWriter, r *http.Request) {
 	var in domain.CreateWorkItemInput
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		errorResponse(w, http.StatusBadRequest, fmt.Sprintf("Format JSON tidak valid: %v", err))
+	if !decodeJSONBody(w, r, &in) {
 		return
 	}
 
@@ -290,8 +341,7 @@ func (s *Server) handleUpdateWorkItem(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var in domain.UpdateWorkItemInput
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		errorResponse(w, http.StatusBadRequest, fmt.Sprintf("Format JSON tidak valid: %v", err))
+	if !decodeJSONBody(w, r, &in) {
 		return
 	}
 
@@ -351,8 +401,7 @@ func (s *Server) handleAddActivity(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var in domain.AddActivityInput
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		errorResponse(w, http.StatusBadRequest, fmt.Sprintf("Format JSON tidak valid: %v", err))
+	if !decodeJSONBody(w, r, &in) {
 		return
 	}
 
@@ -415,13 +464,12 @@ func (s *Server) handleRestoreBackup(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Filename string `json:"filename"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		errorResponse(w, http.StatusBadRequest, "Format JSON tidak valid")
+	if !decodeJSONBody(w, r, &req) {
 		return
 	}
 
 	if strings.TrimSpace(req.Filename) == "" {
-		errorResponse(w, http.StatusBadRequest, "Nama file cadangan wajib disertakan")
+		errorResponse(w, http.StatusBadRequest, "Nama berkas cadangan wajib disertakan")
 		return
 	}
 
@@ -431,7 +479,7 @@ func (s *Server) handleRestoreBackup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	jsonResponse(w, http.StatusOK, map[string]string{
-		"message": fmt.Sprintf("Database berhasil dipulihkan dari cadangan '%s'", req.Filename),
+		"message": fmt.Sprintf("Database berhasil dipulihkan dari cadangan '%s'.", req.Filename),
 	})
 }
 
@@ -513,8 +561,10 @@ func (s *Server) handlePermanentDeleteWorkItem(w http.ResponseWriter, r *http.Re
 	var req struct {
 		ConfirmCode string `json:"confirm_code"`
 	}
-	if r.Body != nil {
-		_ = json.NewDecoder(r.Body).Decode(&req)
+	if r.Body != nil && r.Body != http.NoBody && r.ContentLength != 0 {
+		if !decodeJSONBody(w, r, &req) {
+			return
+		}
 	}
 	if req.ConfirmCode == "" {
 		req.ConfirmCode = r.URL.Query().Get("confirm_code")
@@ -542,7 +592,7 @@ func (s *Server) handlePermanentDeleteWorkItem(w http.ResponseWriter, r *http.Re
 func (s *Server) handleInspectBackup(w http.ResponseWriter, r *http.Request) {
 	filename := r.URL.Query().Get("filename")
 	if strings.TrimSpace(filename) == "" {
-		errorResponse(w, http.StatusBadRequest, "Parameter filename wajib disertakan")
+		errorResponse(w, http.StatusBadRequest, "Nama berkas cadangan wajib disertakan")
 		return
 	}
 
@@ -591,8 +641,7 @@ func (s *Server) handleBatchDeleteBackups(w http.ResponseWriter, r *http.Request
 	var req struct {
 		Filenames []string `json:"filenames"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		errorResponse(w, http.StatusBadRequest, "Format JSON tidak valid")
+	if !decodeJSONBody(w, r, &req) {
 		return
 	}
 
@@ -604,4 +653,3 @@ func (s *Server) handleBatchDeleteBackups(w http.ResponseWriter, r *http.Request
 
 	jsonResponse(w, http.StatusOK, result)
 }
-

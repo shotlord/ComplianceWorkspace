@@ -84,7 +84,7 @@ func (s *ImportService) PreviewImport(
 ) (*domain.ImportPreviewResult, error) {
 	parsed, err := ParseImportFile(fileBytes, fileName, fileType, sheetName)
 	if err != nil {
-		return nil, fmt.Errorf("gagal memproses file impor: %w", err)
+		return nil, fmt.Errorf("gagal memproses berkas impor: %w", err)
 	}
 
 	// Tolak file yang terdeteksi sebagai Activity Log atau format yang tidak kompatibel.
@@ -92,10 +92,10 @@ func (s *ImportService) PreviewImport(
 	// yang tidak ada dalam template Work Register.
 	if isActivityLogFile(parsed.Headers) {
 		return nil, errors.New(
-			"file ini tampaknya adalah ekspor Activity Log, bukan file Work Register. " +
-				"Import Center hanya menerima file Work Register (CSV atau XLSX) dengan kolom seperti " +
+			"berkas ini tampaknya adalah ekspor Riwayat Aktivitas, bukan berkas Daftar Pekerjaan. " +
+				"Impor data hanya menerima berkas daftar pekerjaan (CSV atau XLSX) dengan kolom seperti " +
 				"'Judul Pekerjaan', 'Tanggal Diterima', dll. " +
-				"Silakan unduh template yang benar menggunakan tombol 'Unduh Template'.",
+				"Unduh format yang benar melalui tombol \"Template CSV\" atau \"Template XLSX\".",
 		)
 	}
 
@@ -134,7 +134,7 @@ func (s *ImportService) PreviewImport(
 		if prevRow, exists := inFileDuplicates[inFileKey]; exists {
 			pRow.IsDuplicate = true
 			if pRow.DuplicateReason == "" {
-				pRow.DuplicateReason = fmt.Sprintf("Duplikasi dengan baris %d dalam file yang sama", prevRow)
+				pRow.DuplicateReason = fmt.Sprintf("Duplikasi dengan baris %d dalam berkas yang sama", prevRow)
 			}
 		} else if pRow.Title != "" && pRow.ReceivedOn != "" {
 			inFileDuplicates[inFileKey] = rowNum
@@ -303,7 +303,7 @@ func (s *ImportService) parseAndValidateRow(
 			pRow.IsDuplicate = true
 			pRow.MatchedWorkItemID = &existingID
 			pRow.MatchedWorkCode = existingCode
-			pRow.DuplicateReason = fmt.Sprintf("Sesuai dengan pekerjaan existing [%s] '%s'", existingCode, pRow.Title)
+			pRow.DuplicateReason = fmt.Sprintf("Sesuai dengan pekerjaan yang sudah ada [%s] '%s'", existingCode, pRow.Title)
 		}
 	}
 
@@ -324,14 +324,14 @@ func (s *ImportService) CommitImport(
 	if s.backupSvc != nil {
 		_, err := s.backupSvc.CreateBackup(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("gagal membuat snapshot backup sebelum commit impor: %w", err)
+			return nil, fmt.Errorf("gagal membuat cadangan sebelum menyimpan impor: %w", err)
 		}
 	}
 
 	// 2. Re-parse dan re-validasi seluruh isi file untuk memastikan integritas data tidak berubah diam-diam
 	parsed, err := ParseImportFile(fileBytes, req.FileName, req.FileType, req.Worksheet)
 	if err != nil {
-		return nil, fmt.Errorf("gagal memvalidasi ulang file impor: %w", err)
+		return nil, fmt.Errorf("gagal memvalidasi ulang berkas impor: %w", err)
 	}
 
 	mapping := req.ColumnMapping
@@ -362,7 +362,7 @@ func (s *ImportService) CommitImport(
 		if prevRow, exists := inFileDuplicates[inFileKey]; exists {
 			pRow.IsDuplicate = true
 			if pRow.DuplicateReason == "" {
-				pRow.DuplicateReason = fmt.Sprintf("Duplikasi dengan baris %d dalam file yang sama", prevRow)
+				pRow.DuplicateReason = fmt.Sprintf("Duplikasi dengan baris %d dalam berkas yang sama", prevRow)
 			}
 		} else if pRow.Title != "" && pRow.ReceivedOn != "" {
 			inFileDuplicates[inFileKey] = rowNum
@@ -400,7 +400,7 @@ func (s *ImportService) CommitImport(
 	}
 
 	if err := s.importRepo.CreateBatchTx(ctx, tx, batch); err != nil {
-		return nil, fmt.Errorf("gagal menyimpan batch impor: %w", err)
+		return nil, fmt.Errorf("gagal menyimpan proses impor: %w", err)
 	}
 
 	importedCount := 0
@@ -522,7 +522,7 @@ func (s *ImportService) CommitImport(
 		}
 
 		// Catat Activity Log Penciptaan (Append-Only)
-		desc := fmt.Sprintf("Pekerjaan dibuat melalui impor batch '%s' (baris %d)", batch.BatchCode, row.RowNumber)
+		desc := fmt.Sprintf("Pekerjaan dibuat melalui proses impor '%s' (baris %d)", batch.BatchCode, row.RowNumber)
 		act := &domain.ActivityLog{
 			WorkItemID:  wi.ID,
 			EntryType:   domain.EntryTypeCreated,
@@ -531,7 +531,7 @@ func (s *ImportService) CommitImport(
 			RecordedAt:  now,
 		}
 		if err := s.activityRepo.CreateTx(ctx, tx, act); err != nil {
-			return nil, fmt.Errorf("gagal mencatat activity log baris %d: %w", row.RowNumber, err)
+			return nil, fmt.Errorf("gagal mencatat riwayat aktivitas baris %d: %w", row.RowNumber, err)
 		}
 
 		// Catat riwayat import item
@@ -568,12 +568,12 @@ func (s *ImportService) CommitImport(
 	}
 
 	if err := s.importRepo.UpdateBatchTx(ctx, tx, batch); err != nil {
-		return nil, fmt.Errorf("gagal memperbarui rekap batch: %w", err)
+		return nil, fmt.Errorf("gagal memperbarui rekap proses impor: %w", err)
 	}
 
 	// Commit Transaksi Atomik
 	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("gagal commit transaksi impor: %w", err)
+		return nil, fmt.Errorf("gagal menyimpan transaksi impor: %w", err)
 	}
 
 	return &domain.CommitImportResult{
@@ -599,7 +599,7 @@ type ErrImportHasEditedItems struct {
 }
 
 func (e *ErrImportHasEditedItems) Error() string {
-	return fmt.Sprintf("batch '%s' memiliki %d pekerjaan yang telah diedit atau diubah statusnya setelah impor. Memerlukan konfirmasi eksplisit (force=true) agar tidak mengarsipkan pekerjaan yang telah dimodifikasi secara tidak sengaja", e.BatchCode, e.EditedCount)
+	return fmt.Sprintf("proses impor '%s' memiliki %d pekerjaan yang telah diedit atau diubah statusnya setelah impor. Konfirmasi ulang diperlukan agar pekerjaan yang telah diubah tidak diarsipkan secara tidak sengaja", e.BatchCode, e.EditedCount)
 }
 
 // CompensateRollbackBatch mengeksekusi pembatalan hasil impor melalui tindakan kompensasi (arsip) tanpa menghapus Activity Log.
@@ -610,13 +610,13 @@ func (s *ImportService) CompensateRollbackBatch(ctx context.Context, batchID int
 
 	batch, err := s.importRepo.GetBatchByID(ctx, batchID)
 	if err != nil {
-		return 0, fmt.Errorf("batch tidak ditemukan: %w", err)
+		return 0, fmt.Errorf("proses impor tidak ditemukan: %w", err)
 	}
 	if batch.Status == domain.ImportStatusRolledBack {
-		return 0, errors.New("batch impor ini sudah pernah dibatalkan sebelumnya")
+		return 0, errors.New("proses impor ini sudah pernah dibatalkan")
 	}
 	if batch.Status != domain.ImportStatusCompleted {
-		return 0, fmt.Errorf("hanya batch berstatus 'completed' yang dapat dibatalkan (status saat ini: %s)", batch.Status)
+		return 0, fmt.Errorf("hanya proses impor berstatus 'completed' yang dapat dibatalkan (status saat ini: %s)", batch.Status)
 	}
 
 	tx, err := s.getDB().BeginTx(ctx, nil)
@@ -670,7 +670,7 @@ func (s *ImportService) CompensateRollbackBatch(ctx context.Context, batchID int
 		}
 
 		// Catat Activity Log Kompensasi (Append-Only)
-		desc := fmt.Sprintf("Pekerjaan diarsipkan melalui tindakan kompensasi pembatalan impor batch '%s'", batch.BatchCode)
+		desc := fmt.Sprintf("Pekerjaan diarsipkan melalui pembatalan proses impor '%s'", batch.BatchCode)
 		act := &domain.ActivityLog{
 			WorkItemID:  wID,
 			EntryType:   domain.EntryTypeArchived,
@@ -685,11 +685,11 @@ func (s *ImportService) CompensateRollbackBatch(ctx context.Context, batchID int
 
 	// Update status batch menjadi 'rolled_back'
 	if err := s.importRepo.SetBatchStatusTx(ctx, tx, batchID, domain.ImportStatusRolledBack); err != nil {
-		return 0, fmt.Errorf("gagal memperbarui status batch ke rolled_back: %w", err)
+		return 0, fmt.Errorf("gagal memperbarui status proses impor ke rolled_back: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {
-		return 0, fmt.Errorf("gagal commit pembatalan kompensasi: %w", err)
+		return 0, fmt.Errorf("gagal menyimpan pembatalan impor: %w", err)
 	}
 
 	return compensatedCount, nil
@@ -714,7 +714,7 @@ func (s *ImportService) GetBatchItems(ctx context.Context, batchID int64) ([]*do
 func (s *ImportService) GenerateErrorReportCSV(ctx context.Context, batchID int64) ([]byte, error) {
 	items, err := s.importRepo.GetBatchItems(ctx, batchID)
 	if err != nil {
-		return nil, fmt.Errorf("gagal mengambil data rincian batch: %w", err)
+		return nil, fmt.Errorf("gagal mengambil rincian proses impor: %w", err)
 	}
 
 	var buf bytes.Buffer

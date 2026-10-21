@@ -74,6 +74,9 @@ func TestFrontendCodeNoUnsafeInnerHTML(t *testing.T) {
 		"innerHTML = item.description",
 		"innerHTML += item.",
 		"innerHTML = `<tr><td>${item.title}",
+		"innerHTML = `<div class=\"empty-state\" style=\"color: var(--danger);\">${err.message}",
+		"innerHTML = `<tr><td colspan=\"10\" class=\"empty-state\" style=\"color: var(--danger);\">Gagal memuat riwayat: ${err.message}",
+		"metaEl.innerHTML = `",
 	}
 
 	for _, pattern := range dangerousPatterns {

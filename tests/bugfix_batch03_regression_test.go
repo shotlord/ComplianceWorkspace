@@ -294,8 +294,8 @@ Audit Kepatuhan Internal 2026,2026-10-17,Komite Audit,high,not_started`
 	if !preview.Rows[1].IsValid || !preview.Rows[1].IsDuplicate {
 		t.Errorf("Baris 2 harusnya valid dan terdeteksi duplikat: %+v", preview.Rows[1])
 	}
-	if !strings.Contains(preview.Rows[1].DuplicateReason, "file yang sama") {
-		t.Errorf("DuplicateReason tidak memuat keterangan file yang sama: %s", preview.Rows[1].DuplicateReason)
+	if !strings.Contains(preview.Rows[1].DuplicateReason, "berkas yang sama") {
+		t.Errorf("DuplicateReason tidak memuat keterangan berkas yang sama: %s", preview.Rows[1].DuplicateReason)
 	}
 }
 

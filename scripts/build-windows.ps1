@@ -1,29 +1,33 @@
 <#
 .SYNOPSIS
-    Build script otomatis dan reproducible untuk menghasilkan biner Compliance Workspace v1.1.0 Windows x64 dengan embedded resource icon.
+    Build script otomatis dan reproducible untuk menghasilkan biner Compliance Workspace v1.1.1 Windows x64 dengan embedded resource icon.
 .DESCRIPTION
     Skrip ini memverifikasi toolchain Go, aset icon resmi, dan tool go-winres,
     menghasilkan Windows Resource (.syso) pada direktori cmd/compliance-workspace,
     menjalankan regression test, mengompilasi biner Windows x64 mandiri (CGO_ENABLED=0),
     serta memverifikasi metadata PE dan checksum SHA-256.
 .PARAMETER OutputPath
-    Jalur target berkas executable (default: "uat/compliance-workspace.exe").
+    Jalur target berkas executable yang dipilih secara eksplisit.
 .PARAMETER SkipTests
     Lewati pengujian otomatis sebelum build jika disetel ke $true.
 #>
 param(
-    [string]$OutputPath = "uat/compliance-workspace.exe",
+    [string]$OutputPath,
     [switch]$SkipTests = $false
 )
 
 $ErrorActionPreference = "Stop"
+
+if ([string]::IsNullOrWhiteSpace($OutputPath)) {
+    throw "Parameter -OutputPath wajib diisi dengan jalur build baru yang terisolasi."
+}
 
 # Tentukan direktori proyek (root)
 $ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 Set-Location $ProjectRoot
 
 Write-Host "==========================================================" -ForegroundColor Cyan
-Write-Host " Compliance Workspace v1.1.0 -- Windows x64 Branded Build " -ForegroundColor Cyan
+Write-Host " Compliance Workspace v1.1.1 -- Windows x64 Branded Build " -ForegroundColor Cyan
 Write-Host "==========================================================" -ForegroundColor Cyan
 Write-Host "Lokasi Proyek : $ProjectRoot"
 Write-Host "Target Output : $OutputPath"
@@ -100,8 +104,8 @@ Push-Location $CmdDir
   --manifest cli `
   --file-description "Compliance Workspace - Offline Compliance Management" `
   --product-name "Compliance Workspace" `
-  --file-version "1.1.0.0" `
-  --product-version "1.1.0.0" `
+  --file-version "1.1.1.0" `
+  --product-version "1.1.1.0" `
   --original-filename "ComplianceWorkspace.exe"
 
 $resExit = $LASTEXITCODE
@@ -187,6 +191,12 @@ Write-Host "  -> Product Version   : $($verInfo.ProductVersion)"
 
 if ($verInfo.ProductName -ne "Compliance Workspace") {
     throw "Verifikasi metadata gagal: ProductName '$($verInfo.ProductName)' tidak sesuai."
+}
+if ($verInfo.FileVersion -ne "1.1.1.0") {
+    throw "Verifikasi metadata gagal: FileVersion '$($verInfo.FileVersion)' tidak sesuai."
+}
+if ($verInfo.ProductVersion -ne "1.1.1.0") {
+    throw "Verifikasi metadata gagal: ProductVersion '$($verInfo.ProductVersion)' tidak sesuai."
 }
 
 # Verifikasi Icon shell extraction

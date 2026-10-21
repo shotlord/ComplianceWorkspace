@@ -62,8 +62,8 @@ func TestBatch09_HTMLModalSimplification(t *testing.T) {
 		if !strings.Contains(html, `id="modalRestoreConfirm"`) {
 			t.Fatal("modalRestoreConfirm harus ada di index.html")
 		}
-		if !strings.Contains(html, `Pemulihan Basis Data`) {
-			t.Error("Judul modal harus disederhanakan menjadi 'Pemulihan Basis Data'")
+		if !strings.Contains(html, `Pemulihan Database`) {
+			t.Error("Judul modal harus disederhanakan menjadi 'Pemulihan Database'")
 		}
 		if !strings.Contains(html, `id="restoreBackupFilenameDisplay"`) {
 			t.Error("restoreBackupFilenameDisplay harus ada di index.html")
@@ -71,7 +71,7 @@ func TestBatch09_HTMLModalSimplification(t *testing.T) {
 		if !strings.Contains(html, `id="checkAcknowledgeRestoreRisk"`) {
 			t.Error("checkAcknowledgeRestoreRisk harus ada di index.html")
 		}
-		expectedRstAck := "Saya memahami bahwa pemulihan ini akan menimpa basis data aktif dan tidak dapat dibatalkan melalui aplikasi. Salinan pengaman otomatis akan dibuat sebelum pemulihan."
+		expectedRstAck := "Saya memahami bahwa pemulihan akan mengganti database aktif dan tidak dapat dibatalkan melalui aplikasi. Salinan pengaman otomatis akan dibuat sebelum pemulihan."
 		if !strings.Contains(html, expectedRstAck) {
 			t.Errorf("Teks klausul persetujuan pemulihan cadangan tidak cocok persis. Ekspektasi: %s", expectedRstAck)
 		}

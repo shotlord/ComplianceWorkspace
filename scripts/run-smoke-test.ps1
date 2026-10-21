@@ -1,17 +1,17 @@
 # run-smoke-test.ps1
-# Automated Portable Smoke Test for Compliance Workspace v1.1.0 (Windows x64)
+# Automated Portable Smoke Test for Compliance Workspace v1.1.1 (Windows x64)
 
 $ErrorActionPreference = "Stop"
 
 $workspaceRoot = (Get-Item -Path $PSScriptRoot).Parent.FullName
-$releasePkg = Join-Path $workspaceRoot "release\ComplianceWorkspace-v1.1.0-Windows-x64"
-$testDir = Join-Path $workspaceRoot "temp-smoke-v110"
-$relocDir = Join-Path $workspaceRoot "temp-smoke-v110-moved"
-$port = 19110
+$releasePkg = Join-Path $workspaceRoot "release\ComplianceWorkspace-v1.1.1-Windows-x64"
+$testDir = Join-Path $workspaceRoot "temp-smoke-v111"
+$relocDir = Join-Path $workspaceRoot "temp-smoke-v111-moved"
+$port = 19111
 $baseUrl = "http://127.0.0.1:$port"
 
 Write-Host "==========================================================" -ForegroundColor Cyan
-Write-Host " COMPLIANCE WORKSPACE v1.1.0 - PORTABLE SMOKE TEST " -ForegroundColor Cyan
+Write-Host " COMPLIANCE WORKSPACE v1.1.1 - PORTABLE SMOKE TEST " -ForegroundColor Cyan
 Write-Host "==========================================================" -ForegroundColor Cyan
 
 # Cleanup old test directories and processes if any

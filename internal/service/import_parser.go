@@ -37,10 +37,10 @@ type ParsedFileData struct {
 // ParseImportFile memproses file CSV atau XLSX mentah menjadi baris terstruktur dengan batasan memori dan ukuran
 func ParseImportFile(fileBytes []byte, fileName string, fileType string, sheetName string) (*ParsedFileData, error) {
 	if len(fileBytes) == 0 {
-		return nil, errors.New("file kosong (0 byte)")
+		return nil, errors.New("berkas kosong (0 byte)")
 	}
 	if len(fileBytes) > domain.MaxImportFileSize {
-		return nil, fmt.Errorf("ukuran file melebihi batas maksimal 10 MB (didapat: %.2f MB)", float64(len(fileBytes))/(1024*1024))
+		return nil, fmt.Errorf("ukuran berkas melebihi batas maksimal 10 MB (didapat: %.2f MB)", float64(len(fileBytes))/(1024*1024))
 	}
 
 	ft := strings.ToLower(fileType)
@@ -58,7 +58,7 @@ func ParseImportFile(fileBytes []byte, fileName string, fileType string, sheetNa
 	case "xlsx":
 		return parseXLSXFile(fileBytes, sheetName)
 	default:
-		return nil, fmt.Errorf("format file '%s' tidak didukung (hanya mendukung CSV dan XLSX)", ft)
+		return nil, fmt.Errorf("format berkas '%s' tidak didukung (hanya mendukung CSV dan XLSX)", ft)
 	}
 }
 
@@ -78,7 +78,7 @@ func parseCSVFile(data []byte) (*ParsedFileData, error) {
 	rawHeaders, err := reader.Read()
 	if err != nil {
 		if err == io.EOF {
-			return nil, errors.New("file CSV tidak memiliki data header")
+			return nil, errors.New("berkas CSV tidak memiliki baris judul kolom")
 		}
 		return nil, fmt.Errorf("gagal membaca header CSV: %w", err)
 	}
@@ -91,7 +91,7 @@ func parseCSVFile(data []byte) (*ParsedFileData, error) {
 		}
 	}
 	if len(headers) == 0 {
-		return nil, errors.New("tidak ada kolom header valid yang ditemukan dalam file CSV")
+		return nil, errors.New("tidak ada judul kolom yang valid dalam berkas CSV")
 	}
 
 	var rows []map[string]string
@@ -151,7 +151,7 @@ func validateXLSXArchive(data []byte) error {
 	var totalUncompressed uint64
 	for _, f := range zipReader.File {
 		if strings.Contains(f.Name, "..") {
-			return errors.New("arsip XLSX mengandung path file tidak aman")
+			return errors.New("arsip XLSX mengandung jalur berkas yang tidak aman")
 		}
 		totalUncompressed += f.UncompressedSize64
 		if totalUncompressed > domain.MaxXLSXUncompressedSize {
@@ -180,16 +180,16 @@ func parseXLSXFile(data []byte, requestedSheet string) (*ParsedFileData, error) 
 
 	f, err := excelize.OpenReader(bytes.NewReader(data))
 	if err != nil {
-		return nil, fmt.Errorf("gagal membuka file Excel: format rusak atau terenkripsi: %w", err)
+		return nil, fmt.Errorf("gagal membuka berkas Excel: format rusak atau terenkripsi: %w", err)
 	}
 	defer f.Close()
 
 	sheets := f.GetSheetList()
 	if len(sheets) == 0 {
-		return nil, errors.New("file Excel tidak memiliki worksheet")
+		return nil, errors.New("berkas Excel tidak memiliki lembar kerja")
 	}
 	if len(sheets) > domain.MaxXLSXWorksheets {
-		return nil, fmt.Errorf("jumlah worksheet (%d) melebihi batas maksimal %d sheet", len(sheets), domain.MaxXLSXWorksheets)
+		return nil, fmt.Errorf("jumlah lembar kerja (%d) melebihi batas maksimal %d lembar", len(sheets), domain.MaxXLSXWorksheets)
 	}
 
 	targetSheet := sheets[0]
@@ -203,18 +203,18 @@ func parseXLSXFile(data []byte, requestedSheet string) (*ParsedFileData, error) 
 			}
 		}
 		if !found {
-			return nil, fmt.Errorf("worksheet '%s' tidak ditemukan dalam file Excel", requestedSheet)
+			return nil, fmt.Errorf("lembar kerja '%s' tidak ditemukan dalam berkas Excel", requestedSheet)
 		}
 	}
 
 	rowsIter, err := f.Rows(targetSheet)
 	if err != nil {
-		return nil, fmt.Errorf("gagal membaca worksheet '%s': %w", targetSheet, err)
+		return nil, fmt.Errorf("gagal membaca lembar kerja '%s': %w", targetSheet, err)
 	}
 	defer rowsIter.Close()
 
 	if !rowsIter.Next() {
-		return nil, fmt.Errorf("worksheet '%s' kosong", targetSheet)
+		return nil, fmt.Errorf("lembar kerja '%s' kosong", targetSheet)
 	}
 
 	rawHeaders, err := rowsIter.Columns()
@@ -330,18 +330,41 @@ func SuggestColumnMapping(detectedHeaders []string) map[string]string {
 	}
 
 	for targetField, terms := range synonyms {
+		var exactMatches []string
 		for _, h := range detectedHeaders {
 			normalized := strings.ToLower(strings.TrimSpace(h))
-			// Cek exact match atau substring match
 			for _, term := range terms {
-				if normalized == term || strings.Contains(normalized, term) {
-					mapping[targetField] = h
+				if normalized == term {
+					exactMatches = append(exactMatches, h)
 					break
 				}
 			}
-			if _, found := mapping[targetField]; found {
-				break
+		}
+		if len(exactMatches) == 1 {
+			mapping[targetField] = exactMatches[0]
+			continue
+		}
+		if len(exactMatches) > 1 {
+			continue
+		}
+
+		var partialMatches []string
+		for _, h := range detectedHeaders {
+			normalized := strings.ToLower(strings.TrimSpace(h))
+			for _, term := range terms {
+				// "pekerjaan" dan "kegiatan" sah sebagai header title mandiri,
+				// tetapi terlalu generik untuk substring seperti "Kode Pekerjaan".
+				if targetField == "title" && (term == "pekerjaan" || term == "kegiatan") {
+					continue
+				}
+				if strings.Contains(normalized, term) {
+					partialMatches = append(partialMatches, h)
+					break
+				}
 			}
+		}
+		if len(partialMatches) == 1 {
+			mapping[targetField] = partialMatches[0]
 		}
 	}
 

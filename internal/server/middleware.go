@@ -2,15 +2,22 @@ package server
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
+	"sync"
+
+	"compliance-workspace/internal/domain"
 )
 
 const (
-	CSRFCookieName = "cw_csrf_token"
-	CSRFHeaderName = "X-CSRF-Token"
+	CSRFCookieName       = "cw_csrf_token"
+	CSRFHeaderName       = "X-CSRF-Token"
+	maxJSONRequestBody   = 1 << 20
+	maxImportRequestBody = domain.MaxImportFileSize + (1 << 20)
 )
 
 // GenerateRandomToken membuat token hex acak 32-byte
@@ -22,17 +29,21 @@ func GenerateRandomToken() (string, error) {
 	return hex.EncodeToString(bytes), nil
 }
 
-// HostValidatorMiddleware memastikan request hanya berasal dari 127.0.0.1 atau localhost
-func HostValidatorMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		host := r.Host
-		if h, _, err := net.SplitHostPort(host); err == nil {
-			host = h
-		}
+func validLocalAuthority(authority, expectedPort string) bool {
+	host, port, err := net.SplitHostPort(strings.TrimSpace(authority))
+	if err != nil || port != expectedPort {
+		return false
+	}
+	host = strings.ToLower(host)
+	return host == "127.0.0.1" || host == "localhost"
+}
 
-		host = strings.ToLower(strings.TrimSpace(host))
-		if host != "127.0.0.1" && host != "localhost" {
-			http.Error(w, "Bad Request: Host tidak valid. Hanya 127.0.0.1 dan localhost yang diizinkan.", http.StatusBadRequest)
+// HostValidatorMiddleware hanya menerima authority loopback dengan port listener yang tepat.
+func HostValidatorMiddleware(expectedAddr string, next http.Handler) http.Handler {
+	_, expectedPort, err := net.SplitHostPort(expectedAddr)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err != nil || !validLocalAuthority(r.Host, expectedPort) {
+			http.Error(w, "Permintaan ditolak: Host tidak valid. Hanya 127.0.0.1 dan localhost yang diizinkan.", http.StatusBadRequest)
 			return
 		}
 
@@ -45,33 +56,54 @@ func SecurityHeadersMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
 		next.ServeHTTP(w, r)
 	})
 }
 
-// CSRFAndOriginMiddleware memvalidasi Origin/Referer dan token CSRF untuk request state-changing
-func CSRFAndOriginMiddleware(next http.Handler) http.Handler {
+func validCSRFToken(token string) bool {
+	if len(token) != 64 {
+		return false
+	}
+	_, err := hex.DecodeString(token)
+	return err == nil
+}
+
+func validLocalSource(rawSource, expectedPort string, allowPath bool) bool {
+	u, err := url.Parse(rawSource)
+	if err != nil || u.Scheme != "http" || u.User != nil || !validLocalAuthority(u.Host, expectedPort) {
+		return false
+	}
+	if !allowPath && ((u.Path != "" && u.Path != "/") || u.RawQuery != "") {
+		return false
+	}
+	return u.Fragment == ""
+}
+
+// CSRFAndOriginMiddleware memvalidasi Origin/Referer dan token CSRF untuk request state-changing.
+func CSRFAndOriginMiddleware(expectedAddr string, next http.Handler) http.Handler {
+	_, expectedPort, addrErr := net.SplitHostPort(expectedAddr)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Dapatkan atau buat cookie CSRF
 		var token string
 		cookie, err := r.Cookie(CSRFCookieName)
-		if err != nil || cookie.Value == "" {
+		if err != nil || !validCSRFToken(cookie.Value) {
 			newToken, err := GenerateRandomToken()
-			if err == nil {
-				token = newToken
-				http.SetCookie(w, &http.Cookie{
-					Name:     CSRFCookieName,
-					Value:    newToken,
-					Path:     "/",
-					HttpOnly: false, // Dibaca oleh client-side JS jika dibutuhkan
-					SameSite: http.SameSiteStrictMode,
-				})
-				r.AddCookie(&http.Cookie{
-					Name:  CSRFCookieName,
-					Value: newToken,
-				})
+			if err != nil {
+				http.Error(w, "Kesalahan server: gagal membuat token CSRF.", http.StatusInternalServerError)
+				return
 			}
+			token = newToken
+			http.SetCookie(w, &http.Cookie{
+				Name:     CSRFCookieName,
+				Value:    newToken,
+				Path:     "/",
+				HttpOnly: true,
+				SameSite: http.SameSiteStrictMode,
+			})
+			r.AddCookie(&http.Cookie{Name: CSRFCookieName, Value: newToken})
 		} else {
 			token = cookie.Value
 		}
@@ -83,40 +115,63 @@ func CSRFAndOriginMiddleware(next http.Handler) http.Handler {
 		}
 
 		// Validasi Origin jika ada
-		origin := r.Header.Get("Origin")
+		if addrErr != nil {
+			http.Error(w, "Akses ditolak: konfigurasi listener tidak valid.", http.StatusForbidden)
+			return
+		}
+		origin := strings.TrimSpace(r.Header.Get("Origin"))
 		if origin != "" {
-			if !strings.HasPrefix(origin, "http://127.0.0.1:") &&
-				!strings.HasPrefix(origin, "http://localhost:") &&
-				origin != "http://127.0.0.1" &&
-				origin != "http://localhost" {
-				http.Error(w, "Forbidden: Origin tidak diizinkan", http.StatusForbidden)
+			if !validLocalSource(origin, expectedPort, false) {
+				http.Error(w, "Akses ditolak: Origin tidak diizinkan.", http.StatusForbidden)
 				return
 			}
 		} else {
 			// Jika Origin kosong, periksa Referer jika ada
-			referer := r.Header.Get("Referer")
+			referer := strings.TrimSpace(r.Header.Get("Referer"))
 			if referer != "" {
-				if !strings.HasPrefix(referer, "http://127.0.0.1:") &&
-					!strings.HasPrefix(referer, "http://localhost:") &&
-					!strings.HasPrefix(referer, "http://127.0.0.1/") &&
-					!strings.HasPrefix(referer, "http://localhost/") {
-					http.Error(w, "Forbidden: Referer tidak diizinkan", http.StatusForbidden)
+				if !validLocalSource(referer, expectedPort, true) {
+					http.Error(w, "Akses ditolak: Referer tidak diizinkan.", http.StatusForbidden)
 					return
 				}
 			}
 		}
 
 		// Validasi CSRF Token
-		reqToken := r.Header.Get(CSRFHeaderName)
-		if reqToken == "" {
-			reqToken = r.FormValue("csrf_token")
-		}
-
-		if reqToken == "" || reqToken != token {
-			http.Error(w, "Forbidden: Token CSRF tidak valid atau tidak disertakan", http.StatusForbidden)
+		reqToken := strings.TrimSpace(r.Header.Get(CSRFHeaderName))
+		if !validCSRFToken(reqToken) || subtle.ConstantTimeCompare([]byte(reqToken), []byte(token)) != 1 {
+			http.Error(w, "Akses ditolak: token CSRF tidak valid atau tidak disertakan.", http.StatusForbidden)
 			return
 		}
 
+		next.ServeHTTP(w, r)
+	})
+}
+
+// RequestBodyLimitMiddleware membatasi payload sebelum parser JSON/multipart mengalokasikan memori.
+func RequestBodyLimitMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Body != nil && r.Body != http.NoBody {
+			limit := int64(maxJSONRequestBody)
+			if r.URL.Path == "/api/import/preview" || r.URL.Path == "/api/import/commit" {
+				limit = int64(maxImportRequestBody)
+			}
+			r.Body = http.MaxBytesReader(w, r.Body, limit)
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// DatabaseOperationMiddleware menahan request biasa selama file database sedang diganti.
+func DatabaseOperationMiddleware(gate *sync.RWMutex, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		isRestore := r.Method == http.MethodPost && (r.URL.Path == "/api/backups/restore" || r.URL.Path == "/api/backup/restore")
+		isServiceGatedRecurring := r.Method == http.MethodPost && r.URL.Path == "/api/recurring-schedules/trigger"
+		if gate == nil || isRestore || isServiceGatedRecurring {
+			next.ServeHTTP(w, r)
+			return
+		}
+		gate.RLock()
+		defer gate.RUnlock()
 		next.ServeHTTP(w, r)
 	})
 }

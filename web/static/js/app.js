@@ -108,7 +108,7 @@ const UI = {
   // Label Status Bahasa Indonesia
   getStatusLabel(status) {
     const map = {
-      not_started: "Belum Mulai",
+      not_started: "Belum Dimulai",
       in_progress: "Dalam Proses",
       waiting: "Menunggu",
       completed: "Selesai",
@@ -131,10 +131,10 @@ const UI = {
   // Label Tipe Entri Log
   getEntryTypeLabel(entryType) {
     const map = {
-      created: "Pekerjaan Dibuat",
-      activity: "Catatan Progres",
-      edited: "Pembaruan Data",
-      status_changed: "Perubahan Status",
+      created: "Pekerjaan dibuat",
+      activity: "Catatan progres",
+      edited: "Pembaruan data",
+      status_changed: "Perubahan status",
       archived: "Diarsipkan",
       restored: "Dipulihkan"
     };
@@ -175,6 +175,30 @@ const UI = {
     if (modal) modal.classList.remove("open");
   }
 };
+
+function renderErrorState(container, message, colspan = null) {
+  if (!container) return;
+  container.replaceChildren();
+  const error = document.createElement(colspan ? "td" : "div");
+  error.className = "empty-state";
+  error.style.color = "var(--danger)";
+  error.textContent = message;
+  if (colspan) {
+    error.colSpan = colspan;
+    const row = document.createElement("tr");
+    row.appendChild(error);
+    container.appendChild(row);
+  } else {
+    container.appendChild(error);
+  }
+}
+
+function appendCountBadge(cell, className, value) {
+  const badge = document.createElement("span");
+  badge.className = `badge ${className}`;
+  badge.textContent = String(value);
+  cell.appendChild(badge);
+}
 
 // Inisialisasi Aplikasi
 document.addEventListener("DOMContentLoaded", async () => {
@@ -253,12 +277,12 @@ function switchView(viewName) {
   // Update Judul Halaman
   const titleMap = {
     dashboard: "Dashboard Kepatuhan",
-    work_register: "Work Register",
-    activity_log: "Activity Log Per Pekerjaan",
-    deadline_tracker: "Deadline Tracker",
-    task_management: "Tugas, Template & Master Kategori",
-    import_data: "Data Import Center (CSV & Excel XLSX)",
-    settings_backup: "Pengaturan & Backup"
+    work_register: "Daftar Pekerjaan",
+    activity_log: "Riwayat Aktivitas",
+    deadline_tracker: "Pemantauan Tenggat",
+    task_management: "Jadwal, Template, dan Kategori Pekerjaan",
+    import_data: "Impor Data CSV/XLSX",
+    settings_backup: "Pengaturan dan Cadangan"
   };
   const titleEl = document.getElementById("pageTitle");
   if (titleEl) titleEl.textContent = titleMap[viewName] || "Compliance Workspace";
@@ -296,7 +320,7 @@ async function loadWorkItems(notify = false) {
     populateCategoryFilter();
     populateActivityWorkSelect();
 
-    if (notify) UI.showToast("Data berhasil diperbarui dari server", "success");
+    if (notify) UI.showToast("Data berhasil diperbarui dari server.", "success");
   } catch (err) {
     UI.showToast(`Gagal memuat pekerjaan: ${err.message}`, "error");
   } finally {
@@ -470,7 +494,7 @@ function getWorkItemProvenance(item) {
 async function loadTemplates() {
   const tbody = document.getElementById("templateTableBody");
   if (tbody && (!AppState.templates || AppState.templates.length === 0)) {
-    tbody.innerHTML = '<tr><td colspan="6" class="empty-state"><div class="spinner"></div><div>Memuat template...</div></td></tr>';
+  tbody.innerHTML = '<tr><td colspan="6" class="empty-state"><div class="spinner"></div><div>Memuat template...</div></td></tr>';
   }
   try {
     const tpls = await API.listTemplates();
@@ -479,9 +503,7 @@ async function loadTemplates() {
     renderTemplateTable(AppState.templates);
   } catch (err) {
     console.error("Gagal memuat template:", err);
-    if (tbody) {
-      tbody.innerHTML = `<tr><td colspan="6" class="empty-state" style="color: var(--danger);">Gagal memuat template: ${escapeHTML(err.message)}</td></tr>`;
-    }
+    renderErrorState(tbody, `Gagal memuat template: ${err.message}`, 6);
   }
 }
 
@@ -498,7 +520,7 @@ function populateTemplateSelects() {
   const selCreate = document.getElementById("createSelectTemplate");
   if (selCreate) {
     const curVal = selCreate.value;
-    selCreate.innerHTML = '<option value="">-- Buat Manual (Tanpa Template) --</option>';
+    selCreate.innerHTML = '<option value="">-- Tanpa template --</option>';
     uniqueTemplates.forEach(t => {
       const opt = document.createElement("option");
       opt.value = t.id;
@@ -512,7 +534,7 @@ function populateTemplateSelects() {
   const selRec = document.getElementById("recTemplateId");
   if (selRec) {
     const curVal = selRec.value;
-    selRec.innerHTML = '<option value="">-- Tanpa Template (Kosong) --</option>';
+    selRec.innerHTML = '<option value="">-- Tanpa template --</option>';
     uniqueTemplates.forEach(t => {
       const opt = document.createElement("option");
       opt.value = t.id;
@@ -602,7 +624,7 @@ function renderDashboard() {
     urgentTableBody.innerHTML = `
       <tr>
         <td colspan="6" class="empty-state" style="padding: 24px;">
-          Tidak ada pekerjaan mendesak atau melewati deadline saat ini.
+          Tidak ada pekerjaan mendesak atau yang melewati tenggat saat ini.
         </td>
       </tr>
     `;
@@ -635,10 +657,10 @@ function renderDashboard() {
     const tdDue = document.createElement("td");
     if (item.due_on && item.due_on < today) {
       tdDue.className = "text-overdue";
-      tdDue.textContent = `${UI.formatDateID(item.due_on)} (Lewat)`;
+      tdDue.textContent = `${UI.formatDateID(item.due_on)} (terlambat)`;
     } else if (item.due_on === today) {
       tdDue.className = "text-due-today";
-      tdDue.textContent = "Hari Ini";
+      tdDue.textContent = "Hari ini";
     } else {
       tdDue.textContent = UI.formatDateID(item.due_on);
     }
@@ -673,8 +695,8 @@ function renderWorkRegister() {
     tbody.innerHTML = `
       <tr>
         <td colspan="9" class="empty-state">
-          <div class="empty-state-title">Belum ada data pekerjaan${AppState.filters.provenance ? " untuk filter asal ini" : ""}</div>
-          <div class="empty-state-desc">Gunakan tombol "Tambah Pekerjaan" untuk mencatat tugas kepatuhan baru.</div>
+          <div class="empty-state-title">Belum ada pekerjaan terdaftar${AppState.filters.provenance ? " untuk asal yang dipilih" : ""}.</div>
+          <div class="empty-state-desc">Klik "Tambah Pekerjaan" untuk mencatat tugas baru.</div>
         </td>
       </tr>
     `;
@@ -711,7 +733,7 @@ function renderWorkRegister() {
     provDiv.style.marginBottom = "4px";
 
     if (prov === "recurring") {
-      provDiv.innerHTML = '<span class="badge badge-status-waiting"><span class="badge-dot"></span>Jadwal Rutin</span>';
+      provDiv.innerHTML = '<span class="badge badge-status-waiting"><span class="badge-dot"></span>Jadwal Berulang</span>';
     } else if (prov === "import") {
       provDiv.innerHTML = '<span class="badge badge-status-in_progress"><span class="badge-dot"></span>Impor</span>';
     } else if (prov === "template") {
@@ -739,7 +761,7 @@ function renderWorkRegister() {
     } else {
       if (item.status !== "completed" && item.status !== "cancelled" && item.due_on < today) {
         tdDue.className = "text-overdue";
-        tdDue.textContent = `${UI.formatDateID(item.due_on)} (Lewat)`;
+      tdDue.textContent = `${UI.formatDateID(item.due_on)} (terlambat)`;
       } else {
         tdDue.textContent = UI.formatDateID(item.due_on);
       }
@@ -817,7 +839,7 @@ function renderWorkRegister() {
       const btnDelete = document.createElement("button");
       btnDelete.className = "btn btn-danger btn-sm";
       btnDelete.textContent = "Hapus";
-      btnDelete.title = "Hapus permanen pekerjaan dari basis data";
+    btnDelete.title = "Hapus permanen pekerjaan dari database";
       btnDelete.addEventListener("click", () => openPermanentDeleteWorkModal(item));
       btnGroup.appendChild(btnDelete);
     }
@@ -861,7 +883,7 @@ function populateActivityWorkSelect() {
   const select = document.getElementById("activityWorkSelect");
   if (!select) return;
   const currentVal = select.value;
-  select.innerHTML = '<option value="">-- Pilih Pekerjaan Kepatuhan --</option>';
+  select.innerHTML = '<option value="">-- Pilih Pekerjaan --</option>';
 
   AppState.workItems.forEach(item => {
     const opt = document.createElement("option");
@@ -875,20 +897,20 @@ function populateActivityWorkSelect() {
 async function loadWorkItemActivities(workItemId, containerId) {
   const container = document.getElementById(containerId);
   if (!container) return;
-  container.innerHTML = '<div class="loading-wrap"><div class="spinner"></div><div>Memuat log aktivitas...</div></div>';
+  container.innerHTML = '<div class="loading-wrap"><div class="spinner"></div><div>Memuat riwayat aktivitas...</div></div>';
 
   try {
     const logs = await API.listActivities(workItemId);
     renderTimeline(container, logs);
   } catch (err) {
-    container.innerHTML = `<div class="empty-state" style="color: var(--danger);">${err.message}</div>`;
+    renderErrorState(container, err.message);
   }
 }
 
 function renderTimeline(container, logs) {
   container.innerHTML = "";
   if (!logs || logs.length === 0) {
-    container.innerHTML = '<div class="empty-state">Belum ada catatan aktivitas untuk pekerjaan ini.</div>';
+    container.innerHTML = '<div class="empty-state">Belum ada aktivitas untuk pekerjaan ini.</div>';
     return;
   }
 
@@ -995,10 +1017,6 @@ function renderDeadlineTracker() {
     } else if (item.due_on <= in7Days) {
       countUpcoming++;
       colUpcoming.appendChild(createDeadlineItemCard(item, "upcoming"));
-    } else {
-      // Lebih dari 7 hari, tetap tampilkan di kolom upcoming dengan keterangan tanggal
-      countUpcoming++;
-      colUpcoming.appendChild(createDeadlineItemCard(item));
     }
   });
 
@@ -1007,10 +1025,10 @@ function renderDeadlineTracker() {
   document.getElementById("countUpcoming").textContent = countUpcoming;
   document.getElementById("countNone").textContent = countNone;
 
-  if (countOverdue === 0) colOverdue.innerHTML = '<div class="empty-state" style="padding: 20px;">Tidak ada pekerjaan terlambat</div>';
-  if (countToday === 0) colToday.innerHTML = '<div class="empty-state" style="padding: 20px;">Tidak ada tenggat hari ini</div>';
-  if (countUpcoming === 0) colUpcoming.innerHTML = '<div class="empty-state" style="padding: 20px;">Tidak ada tenggat dalam 7 hari</div>';
-  if (countNone === 0) colNone.innerHTML = '<div class="empty-state" style="padding: 20px;">Semua pekerjaan memiliki tenggat</div>';
+  if (countOverdue === 0) colOverdue.innerHTML = '<div class="empty-state" style="padding: 20px;">Tidak ada pekerjaan yang melewati tenggat.</div>';
+  if (countToday === 0) colToday.innerHTML = '<div class="empty-state" style="padding: 20px;">Tidak ada pekerjaan yang jatuh tempo hari ini.</div>';
+  if (countUpcoming === 0) colUpcoming.innerHTML = '<div class="empty-state" style="padding: 20px;">Tidak ada pekerjaan yang jatuh tempo dalam tujuh hari ke depan.</div>';
+  if (countNone === 0) colNone.innerHTML = '<div class="empty-state" style="padding: 20px;">Tidak ada pekerjaan tanpa tenggat.</div>';
 }
 
 function createDeadlineItemCard(item, urgency) {
@@ -1042,10 +1060,10 @@ function createDeadlineItemCard(item, urgency) {
   const dueSpan = document.createElement("span");
   if (urgency === "overdue") {
     dueSpan.className = "text-overdue";
-    dueSpan.textContent = `Lewat: ${UI.formatDateID(item.due_on)}`;
+    dueSpan.textContent = `Terlambat: ${UI.formatDateID(item.due_on)}`;
   } else if (urgency === "today") {
     dueSpan.className = "text-due-today";
-    dueSpan.textContent = "Hari Ini";
+    dueSpan.textContent = "Hari ini";
   } else if (item.due_on) {
     dueSpan.textContent = UI.formatDateID(item.due_on);
   } else {
@@ -1058,7 +1076,7 @@ function createDeadlineItemCard(item, urgency) {
   btnAction.className = "btn btn-secondary btn-sm";
   btnAction.style.width = "100%";
   btnAction.style.marginTop = "4px";
-  btnAction.textContent = "Lihat & Tindak Lanjut";
+  btnAction.textContent = "Lihat dan Tindak Lanjut";
   btnAction.addEventListener("click", () => openWorkDetailModal(item.id));
 
   card.append(top, title, meta, btnAction);
@@ -1092,7 +1110,7 @@ function setupModalListeners() {
       if (e.target.value) {
         loadWorkItemActivities(e.target.value, "activityViewTimeline");
       } else {
-        document.getElementById("activityViewTimeline").innerHTML = '<div class="empty-state">Pilih pekerjaan untuk melihat log.</div>';
+      document.getElementById("activityViewTimeline").innerHTML = '<div class="empty-state">Pilih pekerjaan untuk melihat riwayat aktivitasnya.</div>';
       }
     });
   }
@@ -1255,11 +1273,11 @@ function setupFormListeners() {
       const tplId = document.getElementById("createSelectTemplate") ? document.getElementById("createSelectTemplate").value : "";
 
       if (!title) {
-        UI.showToast("Judul pekerjaan wajib diisi", "error");
+      UI.showToast("Judul pekerjaan wajib diisi.", "error");
         return;
       }
       if (!receivedOn) {
-        UI.showToast("Tanggal diterima wajib diisi", "error");
+      UI.showToast("Tanggal diterima wajib diisi.", "error");
         return;
       }
 
@@ -1292,7 +1310,7 @@ function setupFormListeners() {
           });
         }
 
-        UI.showToast(`Pekerjaan ${newItem.work_code} berhasil dibuat`, "success");
+      UI.showToast(`Pekerjaan ${newItem.work_code} berhasil dibuat.`, "success");
         UI.closeModal("modalCreateWork");
         await loadWorkItems();
       } catch (err) {
@@ -1349,22 +1367,22 @@ function setupFormListeners() {
       const description = document.getElementById("recDescription").value.trim();
 
       if (!title) {
-        UI.showToast("Judul Jadwal wajib diisi", "error");
+      UI.showToast("Judul jadwal wajib diisi.", "error");
         document.getElementById("recTitle").focus();
         return;
       }
       if (!startDate) {
-        UI.showToast("Tanggal Mulai Berlaku wajib diisi", "error");
+      UI.showToast("Tanggal mulai wajib diisi.", "error");
         document.getElementById("recStartDate").focus();
         return;
       }
       if (intervalVal < 1) {
-        UI.showToast("Interval N harus berupa bilangan bulat positif (minimal 1)", "error");
+      UI.showToast("Interval pengulangan harus berupa bilangan bulat positif, minimal 1.", "error");
         document.getElementById("recInterval").focus();
         return;
       }
       if (endDate && endDate < startDate) {
-        UI.showToast("Tanggal Selesai tidak boleh mendahului Tanggal Mulai", "error");
+      UI.showToast("Tanggal selesai tidak boleh mendahului tanggal mulai.", "error");
         document.getElementById("recEndDate").focus();
         return;
       }
@@ -1389,10 +1407,10 @@ function setupFormListeners() {
 
         if (isEdit) {
           await API.updateRecurringSchedule(idVal, payload);
-          UI.showToast("Jadwal berulang berhasil diperbarui", "success");
+        UI.showToast("Jadwal berulang berhasil diperbarui.", "success");
         } else {
           await API.createRecurringSchedule(payload);
-          UI.showToast("Jadwal berulang berhasil ditambahkan", "success");
+        UI.showToast("Jadwal berulang berhasil ditambahkan.", "success");
         }
         UI.closeModal("modalCreateRecurring");
         formRec.reset();
@@ -1422,12 +1440,12 @@ function setupFormListeners() {
       const checklistRaw = document.getElementById("tplChecklist").value;
 
       if (!name) {
-        UI.showToast("Nama template wajib diisi", "error");
+      UI.showToast("Nama template wajib diisi.", "error");
         document.getElementById("tplName").focus();
         return;
       }
       if (!titlePattern) {
-        UI.showToast("Pola Judul Pekerjaan (title_pattern) wajib diisi", "error");
+      UI.showToast("Pola judul pekerjaan wajib diisi.", "error");
         if (document.getElementById("tplTitlePattern")) document.getElementById("tplTitlePattern").focus();
         return;
       }
@@ -1454,10 +1472,10 @@ function setupFormListeners() {
 
         if (isEdit) {
           await API.updateTemplate(idVal, payload);
-          UI.showToast("Template pekerjaan berhasil diperbarui", "success");
+        UI.showToast("Template pekerjaan berhasil diperbarui.", "success");
         } else {
           await API.createTemplate(payload);
-          UI.showToast("Template pekerjaan berhasil ditambahkan", "success");
+        UI.showToast("Template pekerjaan berhasil ditambahkan.", "success");
         }
         UI.closeModal("modalCreateTemplate");
         formTpl.reset();
@@ -1482,7 +1500,7 @@ function setupFormListeners() {
       const description = document.getElementById("catDescription").value.trim();
 
       if (!name) {
-        UI.showToast("Nama kategori wajib diisi", "error");
+      UI.showToast("Nama kategori wajib diisi.", "error");
         return;
       }
 
@@ -1495,7 +1513,7 @@ function setupFormListeners() {
           color,
           description
         });
-        UI.showToast(`Kategori "${name}" berhasil ditambahkan`, "success");
+      UI.showToast(`Kategori "${name}" berhasil ditambahkan.`, "success");
         UI.closeModal("modalCreateCategory");
         formCat.reset();
         await loadCategories();
@@ -1523,7 +1541,7 @@ function setupFormListeners() {
       const status = document.getElementById("editStatus").value;
 
       if (!title || !receivedOn) {
-        UI.showToast("Judul dan Tanggal Diterima wajib diisi", "error");
+      UI.showToast("Judul dan tanggal diterima wajib diisi.", "error");
         return;
       }
 
@@ -1542,7 +1560,7 @@ function setupFormListeners() {
           status
         });
 
-        UI.showToast(`Pekerjaan ${updated.work_code} berhasil diperbarui`, "success");
+      UI.showToast(`Pekerjaan ${updated.work_code} berhasil diperbarui.`, "success");
         UI.closeModal("modalEditWork");
         await loadWorkItems();
       } catch (err) {
@@ -1562,7 +1580,7 @@ function setupFormListeners() {
       const desc = document.getElementById("activityDescription").value.trim();
 
       if (!desc) {
-        UI.showToast("Deskripsi aktivitas wajib diisi", "error");
+      UI.showToast("Deskripsi aktivitas wajib diisi.", "error");
         return;
       }
 
@@ -1574,14 +1592,14 @@ function setupFormListeners() {
           description: desc
         });
 
-        UI.showToast("Catatan aktivitas berhasil ditambahkan", "success");
+      UI.showToast("Catatan aktivitas berhasil ditambahkan.", "success");
         document.getElementById("activityDescription").value = "";
 
         // Render ulang timeline
         await loadWorkItemActivities(workItemId, "detailTimelineContainer");
         await loadWorkItems();
       } catch (err) {
-        UI.showToast(`Gagal menambah aktivitas: ${err.message}`, "error");
+        UI.showToast(`Gagal menambahkan catatan aktivitas: ${err.message}`, "error");
       } finally {
         submitBtn.disabled = false;
       }
@@ -1600,7 +1618,7 @@ function setupFormListeners() {
       const isActive = document.getElementById("manageCatIsActive") ? document.getElementById("manageCatIsActive").checked : true;
 
       if (!name) {
-        UI.showToast("Nama kategori wajib diisi", "error");
+      UI.showToast("Nama kategori wajib diisi.", "error");
         return;
       }
 
@@ -1615,7 +1633,7 @@ function setupFormListeners() {
             description,
             is_active: isActive
           });
-          UI.showToast(`Kategori "${updated.name}" berhasil diperbarui`, "success");
+      UI.showToast(`Kategori "${updated.name}" berhasil diperbarui.`, "success");
           resetCategoryForm();
           await loadCategories();
           if (AppState.categoryModalCaller) {
@@ -1627,7 +1645,7 @@ function setupFormListeners() {
             color,
             description
           });
-          UI.showToast(`Kategori "${created.name}" berhasil ditambahkan`, "success");
+      UI.showToast(`Kategori "${created.name}" berhasil ditambahkan.`, "success");
           resetCategoryForm();
           await loadCategories();
           if (AppState.categoryModalCaller) {
@@ -1728,14 +1746,14 @@ async function loadWorkItemSubtasks(workItemId) {
 
     renderSubtaskList(container, AppState.subtasks, workItemId);
   } catch (err) {
-    container.innerHTML = `<div class="empty-state" style="color: var(--danger);">${err.message}</div>`;
+    renderErrorState(container, err.message);
   }
 }
 
 function renderSubtaskList(container, subtasks, workItemId) {
   container.innerHTML = "";
   if (!subtasks || subtasks.length === 0) {
-    container.innerHTML = '<div class="empty-state" style="padding: 12px;">Belum ada subtask/checklist. Tambahkan checklist di bawah.</div>';
+    container.innerHTML = '<div class="empty-state" style="padding: 12px;">Belum ada subtask. Tambahkan subtask di bawah.</div>';
     return;
   }
 
@@ -1754,7 +1772,7 @@ function renderSubtaskList(container, subtasks, workItemId) {
         await loadWorkItemActivities(workItemId, "detailTimelineContainer");
         await loadWorkItems();
       } catch (err) {
-        UI.showToast(`Gagal memperbarui status checklist: ${err.message}`, "error");
+        UI.showToast(`Gagal memperbarui status subtask: ${err.message}`, "error");
         cb.checked = !cb.checked;
       }
     });
@@ -1770,7 +1788,7 @@ function renderSubtaskList(container, subtasks, workItemId) {
     btnDelete.addEventListener("click", async () => {
       try {
         await API.deleteSubtask(s.id);
-        UI.showToast("Subtask dihapus", "info");
+        UI.showToast("Subtask dihapus.", "info");
         await loadWorkItemSubtasks(workItemId);
         await loadWorkItemActivities(workItemId, "detailTimelineContainer");
         await loadWorkItems();
@@ -1787,12 +1805,12 @@ function renderSubtaskList(container, subtasks, workItemId) {
 // Konfirmasi Pengarsipan
 function confirmArchiveWork(item) {
   showConfirmDialog(
-    "Konfirmasi Pengarsipan",
-    `Apakah Anda yakin ingin mengarsipkan pekerjaan [${item.work_code}] "${item.title}"? Pekerjaan ini akan disembunyikan dari daftar aktif.`,
+    "Arsipkan Pekerjaan",
+    `Arsipkan pekerjaan [${item.work_code}] "${item.title}"? Pekerjaan ini akan disembunyikan dari daftar aktif.`,
     async () => {
       try {
         await API.archiveWorkItem(item.id);
-        UI.showToast(`Pekerjaan ${item.work_code} berhasil diarsipkan`, "success");
+        UI.showToast(`Pekerjaan ${item.work_code} berhasil diarsipkan.`, "success");
         await loadWorkItems();
       } catch (err) {
         UI.showToast(`Gagal mengarsipkan: ${err.message}`, "error");
@@ -1804,12 +1822,12 @@ function confirmArchiveWork(item) {
 // Konfirmasi Pemulihan Arsip
 function confirmRestoreWork(item) {
   showConfirmDialog(
-    "Konfirmasi Pemulihan",
+    "Pulihkan Pekerjaan",
     `Pulihkan pekerjaan [${item.work_code}] "${item.title}" kembali ke daftar aktif?`,
     async () => {
       try {
         await API.restoreWorkItem(item.id);
-        UI.showToast(`Pekerjaan ${item.work_code} berhasil dipulihkan`, "success");
+        UI.showToast(`Pekerjaan ${item.work_code} berhasil dipulihkan.`, "success");
         await loadWorkItems();
       } catch (err) {
         UI.showToast(`Gagal memulihkan: ${err.message}`, "error");
@@ -1937,14 +1955,14 @@ async function loadBackups() {
     const backups = await API.listBackups();
     renderBackupTable(tbody, backups);
   } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="7" class="empty-state" style="color: var(--danger);">Gagal memuat cadangan: ${UI.escapeHTML(err.message)}</td></tr>`;
+    renderErrorState(tbody, `Gagal memuat cadangan: ${err.message}`, 7);
   }
 }
 
 function renderBackupTable(tbody, backups) {
   tbody.innerHTML = "";
   if (!backups || backups.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="7" class="empty-state">Belum ada file cadangan. Klik "Buat Backup Sekarang" untuk membuat cadangan snapshot SQLite baru.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-state">Belum ada cadangan. Klik "Buat Backup Sekarang" untuk membuatnya.</td></tr>';
     return;
   }
 
@@ -2015,13 +2033,13 @@ function renderBackupTable(tbody, backups) {
     const btnRestore = document.createElement("button");
     btnRestore.className = "btn btn-secondary btn-sm";
     btnRestore.textContent = "Pulihkan";
-    btnRestore.title = "Inspeksi dan pulihkan basis data dari cadangan ini";
+    btnRestore.title = "Periksa dan pulihkan database dari cadangan ini";
     btnRestore.addEventListener("click", () => openRestoreInspectionModal(item.filename));
 
     const btnDelete = document.createElement("button");
     btnDelete.className = "btn btn-danger btn-sm";
     btnDelete.textContent = "Hapus";
-    btnDelete.title = "Hapus file cadangan ini dari disk";
+    btnDelete.title = "Hapus berkas cadangan ini dari penyimpanan";
     btnDelete.addEventListener("click", () => confirmDeleteBackup(item.filename));
 
     btnGroup.append(btnRestore, btnDelete);
@@ -2037,7 +2055,7 @@ async function handleCreateBackupClick() {
   if (!btn) return;
   const originalText = btn.innerHTML;
   btn.disabled = true;
-  btn.textContent = "Membuat Cadangan...";
+  btn.textContent = "Membuat cadangan...";
 
   try {
     const res = await API.createBackup();
@@ -2053,8 +2071,8 @@ async function handleCreateBackupClick() {
 
 function confirmDeleteBackup(filename) {
   showConfirmDialog(
-    "Konfirmasi Hapus Cadangan",
-    `Apakah Anda yakin ingin menghapus berkas cadangan "${filename}"? Sistem akan menolak jika ini adalah satu-satunya berkas cadangan valid yang tersisa.`,
+    "Hapus Cadangan",
+    `Hapus berkas cadangan "${filename}"? Sistem akan menolak tindakan ini jika hanya tersisa satu cadangan valid.`,
     async () => {
       try {
         const res = await API.deleteBackup(filename);
@@ -2071,8 +2089,8 @@ function handleBatchDeleteBackups() {
   if (selectedBackupFiles.size === 0) return;
   const count = selectedBackupFiles.size;
   showConfirmDialog(
-    "Konfirmasi Hapus Sejumlah Cadangan",
-    `Apakah Anda yakin ingin menghapus ${count} berkas cadangan yang dipilih? Sistem mewajibkan setidaknya satu cadangan valid dipertahankan di disk.`,
+    "Hapus Cadangan yang Dipilih",
+    `Hapus ${count} berkas cadangan yang dipilih? Setidaknya satu cadangan valid harus tetap tersedia.`,
     async () => {
       try {
         const filenames = Array.from(selectedBackupFiles);
@@ -2112,10 +2130,10 @@ function openRestoreInspectionModal(filename) {
   btnExecute.onclick = async () => {
     if (!ackCheck.checked) return;
     btnExecute.disabled = true;
-    btnExecute.textContent = "Memulihkan Database...";
+    btnExecute.textContent = "Memulihkan database...";
     try {
       const res = await API.restoreBackup(filename);
-      UI.showToast(res.message || "Database berhasil dipulihkan", "success");
+      UI.showToast(res.message || "Database berhasil dipulihkan.", "success");
       UI.closeModal(modalId);
       await loadWorkItems();
       await loadBackups();
@@ -2149,7 +2167,7 @@ async function loadRecurringSchedules() {
     AppState.recurringSchedules = Array.isArray(schedules) ? schedules : [];
     renderRecurringTable(AppState.recurringSchedules);
   } catch (err) {
-    if (tbody) tbody.innerHTML = `<tr><td colspan="8" class="empty-state" style="color: var(--danger);">Gagal memuat jadwal: ${err.message}</td></tr>`;
+    renderErrorState(tbody, `Gagal memuat jadwal: ${err.message}`, 8);
   }
 }
 
@@ -2159,7 +2177,7 @@ function openCreateRecurringModal() {
   const idEl = document.getElementById("recId");
   if (idEl) idEl.value = "";
   const titleEl = document.getElementById("modalRecurringTitle");
-  if (titleEl) titleEl.textContent = "Tambah Jadwal Pekerjaan Berulang (Recurring)";
+  if (titleEl) titleEl.textContent = "Tambah Jadwal Berulang";
   const submitBtn = document.getElementById("btnSubmitRecurring");
   if (submitBtn) submitBtn.textContent = "Simpan Jadwal";
 
@@ -2181,9 +2199,9 @@ function openEditRecurringModal(s) {
   const idEl = document.getElementById("recId");
   if (idEl) idEl.value = s.id;
   const titleEl = document.getElementById("modalRecurringTitle");
-  if (titleEl) titleEl.textContent = "Edit Jadwal Pekerjaan Berulang";
+  if (titleEl) titleEl.textContent = "Edit Jadwal Berulang";
   const submitBtn = document.getElementById("btnSubmitRecurring");
-  if (submitBtn) submitBtn.textContent = "Simpan Perubahan";
+  if (submitBtn) submitBtn.textContent = "Simpan Jadwal";
 
   populateCategorySelects(s.category, "recCategory");
   populateTemplateSelects();
@@ -2207,7 +2225,7 @@ function openCreateTemplateModal() {
   const idEl = document.getElementById("tplId");
   if (idEl) idEl.value = "";
   const titleEl = document.getElementById("modalTemplateTitle");
-  if (titleEl) titleEl.textContent = "Tambah Template Pekerjaan Baru";
+  if (titleEl) titleEl.textContent = "Tambah Template Pekerjaan";
   const submitBtn = document.getElementById("btnSubmitTemplate");
   if (submitBtn) submitBtn.textContent = "Simpan Template";
 
@@ -2223,7 +2241,7 @@ function openEditTemplateModal(t) {
   const titleEl = document.getElementById("modalTemplateTitle");
   if (titleEl) titleEl.textContent = "Edit Template Pekerjaan";
   const submitBtn = document.getElementById("btnSubmitTemplate");
-  if (submitBtn) submitBtn.textContent = "Simpan Perubahan";
+  if (submitBtn) submitBtn.textContent = "Simpan Template";
 
   populateCategorySelects(t.category, "tplCategory");
 
@@ -2246,7 +2264,7 @@ function renderRecurringTable(schedules) {
   tbody.innerHTML = "";
 
   if (!schedules || schedules.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="8" class="empty-state">Belum ada jadwal pekerjaan berulang. Klik "Tambah Jadwal" untuk membuat rutinitas baru.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" class="empty-state">Belum ada jadwal berulang. Klik "Tambah Jadwal" untuk membuatnya.</td></tr>';
     return;
   }
 
@@ -2285,7 +2303,7 @@ function renderRecurringTable(schedules) {
       yearly: "Tahunan"
     };
     const freqLabel = freqLabels[s.frequency] || s.frequency || "Bulanan";
-    tdFreq.textContent = `${freqLabel} (Setiap ${s.interval_value || 1})`;
+    tdFreq.textContent = `${freqLabel}, setiap ${s.interval_value || 1} periode`;
 
     // Jadwal Berikutnya
     const tdNext = document.createElement("td");
@@ -2313,7 +2331,7 @@ function renderRecurringTable(schedules) {
       badge.className = `badge ${s.is_active ? "badge-status-completed" : "badge-status-cancelled"}`;
       const dot = document.createElement("span");
       dot.className = "badge-dot";
-      badge.append(dot, document.createTextNode(s.is_active ? "Aktif" : "Nonaktif"));
+      badge.append(dot, document.createTextNode(s.is_active ? "Aktif" : "Tidak Aktif"));
       tdStatus.appendChild(badge);
     }
 
@@ -2335,7 +2353,7 @@ function renderRecurringTable(schedules) {
     btnToggle.addEventListener("click", async () => {
       try {
         await API.updateRecurringSchedule(s.id, { is_active: !s.is_active });
-        UI.showToast(`Jadwal ${s.is_active ? "dinonaktifkan" : "diaktifkan"}`, "info");
+        UI.showToast(`Jadwal berhasil ${s.is_active ? "dinonaktifkan" : "diaktifkan"}.`, "info");
         await loadRecurringSchedules();
       } catch (err) {
         UI.showToast(`Gagal mengubah status jadwal: ${err.message}`, "error");
@@ -2346,10 +2364,10 @@ function renderRecurringTable(schedules) {
     btnDelete.className = "btn btn-secondary btn-sm";
     btnDelete.textContent = "Hapus";
     btnDelete.addEventListener("click", () => {
-      showConfirmDialog("Hapus Jadwal Berulang", `Hapus jadwal "${s.title}"? Pekerjaan yang telah dibuat sebelumnya tidak akan terpengaruh.`, async () => {
+    showConfirmDialog("Hapus Jadwal Berulang", `Hapus jadwal "${s.title}"? Pekerjaan yang telah dibuat tidak akan terpengaruh.`, async () => {
         try {
           await API.deleteRecurringSchedule(s.id);
-          UI.showToast("Jadwal berulang berhasil dihapus", "success");
+        UI.showToast("Jadwal berulang berhasil dihapus.", "success");
           await loadRecurringSchedules();
         } catch (err) {
           UI.showToast(`Gagal menghapus jadwal: ${err.message}`, "error");
@@ -2371,7 +2389,7 @@ function renderTemplateTable(templates) {
   tbody.innerHTML = "";
 
   if (!templates || templates.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="6" class="empty-state">Belum ada template pekerjaan. Klik "Tambah Template" untuk membuat template checklist.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-state">Belum ada template pekerjaan. Klik "Tambah Template" untuk membuatnya.</td></tr>';
     return;
   }
 
@@ -2403,7 +2421,10 @@ function renderTemplateTable(templates) {
     // Jumlah Checklist
     const tdChecklist = document.createElement("td");
     const count = Array.isArray(t.checklist_items) ? t.checklist_items.length : 0;
-    tdChecklist.innerHTML = `<span class="progress-badge">${count} item subtask</span>`;
+    const checklistBadge = document.createElement("span");
+    checklistBadge.className = "progress-badge";
+    checklistBadge.textContent = `${count} subtask`;
+    tdChecklist.appendChild(checklistBadge);
 
     // Deskripsi
     const tdDesc = document.createElement("td");
@@ -2440,10 +2461,10 @@ function renderTemplateTable(templates) {
     btnDelete.className = "btn btn-secondary btn-sm";
     btnDelete.textContent = "Hapus";
     btnDelete.addEventListener("click", () => {
-      showConfirmDialog("Hapus Template", `Apakah Anda yakin ingin menghapus template "${t.name}"?`, async () => {
+    showConfirmDialog("Hapus Template", `Hapus template "${t.name}"?`, async () => {
         try {
           await API.deleteTemplate(t.id);
-          UI.showToast("Template berhasil dihapus", "success");
+        UI.showToast("Template berhasil dihapus.", "success");
           await loadTemplates();
         } catch (err) {
           UI.showToast(`Gagal menghapus template: ${err.message}`, "error");
@@ -2465,7 +2486,7 @@ function renderCategoryTable(categories) {
   tbody.innerHTML = "";
 
   if (!categories || categories.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="6" class="empty-state">Belum ada data kategori.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-state">Belum ada kategori pekerjaan.</td></tr>';
     return;
   }
 
@@ -2492,7 +2513,7 @@ function renderCategoryTable(categories) {
     // Tipe
     const tdType = document.createElement("td");
     if (c.is_default) {
-      tdType.innerHTML = '<span class="badge badge-status-completed"><span class="badge-dot"></span>Default Sistem</span>';
+      tdType.innerHTML = '<span class="badge badge-status-completed"><span class="badge-dot"></span>Bawaan Sistem</span>';
     } else {
       tdType.innerHTML = '<span class="badge badge-status-not_started"><span class="badge-dot"></span>Kustom</span>';
     }
@@ -2503,7 +2524,7 @@ function renderCategoryTable(categories) {
     badgeStatus.className = `badge ${c.is_active ? "badge-status-completed" : "badge-status-cancelled"}`;
     const dot = document.createElement("span");
     dot.className = "badge-dot";
-    badgeStatus.append(dot, document.createTextNode(c.is_active ? "Aktif" : "Nonaktif"));
+    badgeStatus.append(dot, document.createTextNode(c.is_active ? "Aktif" : "Tidak Aktif"));
     tdStatus.appendChild(badgeStatus);
 
     // Aksi
@@ -2527,7 +2548,7 @@ function renderCategoryTable(categories) {
             is_active: !c.is_active
           });
           const newStatus = !c.is_active ? "diaktifkan" : "dinonaktifkan";
-          UI.showToast(`Kategori "${c.name}" berhasil ${newStatus}`, "info");
+          UI.showToast(`Kategori "${c.name}" berhasil ${newStatus}.`, "info");
           await loadCategories();
         } catch (err) {
           UI.showToast(`Gagal mengubah status kategori: ${err.message}`, "error");
@@ -2540,14 +2561,14 @@ function renderCategoryTable(categories) {
       btnDelete.addEventListener("click", () => {
         showConfirmDialog(
           "Hapus Kategori Permanen",
-          `Apakah Anda yakin ingin menghapus kategori "${c.name}" secara permanen? Tindakan ini tidak dapat dibatalkan.`,
+          `Hapus kategori "${c.name}" secara permanen? Tindakan ini tidak dapat dibatalkan.`,
           async () => {
             try {
               const res = await API.deleteCategory(c.id);
-              UI.showToast(res.message || `Kategori "${c.name}" berhasil dihapus`, "success");
+              UI.showToast(res.message || `Kategori "${c.name}" berhasil dihapus.`, "success");
               await loadCategories();
             } catch (err) {
-              UI.showToast(err.message || "Gagal menghapus kategori", "error");
+              UI.showToast(err.message || "Gagal menghapus kategori.", "error");
             }
           }
         );
@@ -2556,7 +2577,7 @@ function renderCategoryTable(categories) {
       btnGroup.append(btnToggle, btnDelete);
       tdAction.appendChild(btnGroup);
     } else {
-      tdAction.textContent = "Sistem (Tetap)";
+      tdAction.textContent = "Dilindungi";
       tdAction.style.color = "var(--text-muted)";
       tdAction.style.fontSize = "12px";
     }
@@ -2572,7 +2593,7 @@ function renderManageCategoryTable(categories) {
   tbody.innerHTML = "";
 
   if (!categories || categories.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="5" class="empty-state">Belum ada data kategori.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="5" class="empty-state">Belum ada kategori pekerjaan.</td></tr>';
     return;
   }
 
@@ -2594,7 +2615,7 @@ function renderManageCategoryTable(categories) {
     // Tipe
     const tdType = document.createElement("td");
     if (c.is_default) {
-      tdType.innerHTML = '<span class="badge badge-status-completed"><span class="badge-dot"></span>Sistem</span>';
+      tdType.innerHTML = '<span class="badge badge-status-completed"><span class="badge-dot"></span>Bawaan Sistem</span>';
     } else {
       tdType.innerHTML = '<span class="badge badge-status-not_started"><span class="badge-dot"></span>Kustom</span>';
     }
@@ -2605,7 +2626,7 @@ function renderManageCategoryTable(categories) {
     badgeStatus.className = `badge ${c.is_active ? "badge-status-completed" : "badge-status-cancelled"}`;
     const dot = document.createElement("span");
     dot.className = "badge-dot";
-    badgeStatus.append(dot, document.createTextNode(c.is_active ? "Aktif" : "Nonaktif"));
+    badgeStatus.append(dot, document.createTextNode(c.is_active ? "Aktif" : "Tidak Aktif"));
     tdStatus.appendChild(badgeStatus);
 
     // Aksi
@@ -2635,7 +2656,7 @@ function renderManageCategoryTable(categories) {
             is_active: !c.is_active
           });
           const newStatus = !c.is_active ? "diaktifkan" : "dinonaktifkan";
-          UI.showToast(`Kategori "${c.name}" berhasil ${newStatus}`, "info");
+          UI.showToast(`Kategori "${c.name}" berhasil ${newStatus}.`, "info");
           await loadCategories();
           if (AppState.categoryModalCaller) {
             populateCategorySelects(null, AppState.categoryModalCaller);
@@ -2651,17 +2672,17 @@ function renderManageCategoryTable(categories) {
       btnDelete.addEventListener("click", () => {
         showConfirmDialog(
           "Hapus Kategori Permanen",
-          `Apakah Anda yakin ingin menghapus kategori "${c.name}" secara permanen? Tindakan ini tidak dapat dibatalkan.`,
+          `Hapus kategori "${c.name}" secara permanen? Tindakan ini tidak dapat dibatalkan.`,
           async () => {
             try {
               const res = await API.deleteCategory(c.id);
-              UI.showToast(res.message || `Kategori "${c.name}" berhasil dihapus`, "success");
+              UI.showToast(res.message || `Kategori "${c.name}" berhasil dihapus.`, "success");
               await loadCategories();
               if (AppState.categoryModalCaller) {
                 populateCategorySelects(null, AppState.categoryModalCaller);
               }
             } catch (err) {
-              UI.showToast(err.message || "Gagal menghapus kategori", "error");
+              UI.showToast(err.message || "Gagal menghapus kategori.", "error");
             }
           }
         );
@@ -2689,7 +2710,7 @@ function resetCategoryForm() {
   const idEl = document.getElementById("manageCatId");
   if (idEl) idEl.value = "";
   const titleEl = document.getElementById("manageCatFormTitle");
-  if (titleEl) titleEl.textContent = "Tambah Kategori Baru";
+  if (titleEl) titleEl.textContent = "Tambah Kategori";
   const nameEl = document.getElementById("manageCatName");
   if (nameEl) {
     nameEl.value = "";
@@ -2855,14 +2876,14 @@ function handleImportFileSelect(file) {
   const isValidExt = validExtensions.some(ext => lowerName.endsWith(ext));
 
   if (!isValidExt) {
-    UI.showToast("Format berkas tidak didukung. Harap pilih berkas .csv atau .xlsx", "error");
+    UI.showToast("Format berkas tidak didukung. Pilih berkas .csv atau .xlsx.", "error");
     return;
   }
 
   // 10 MB limit
   const maxBytes = 10 * 1024 * 1024;
   if (file.size > maxBytes) {
-    UI.showToast("Ukuran berkas melebihi batas maksimal 10 MB", "error");
+    UI.showToast("Ukuran berkas melebihi batas maksimal 10 MB.", "error");
     return;
   }
 
@@ -2957,7 +2978,7 @@ function resetImportWizard() {
 async function startImportInitialPreview() {
   const file = AppState.importState.selectedFile;
   if (!file) {
-    UI.showToast("Pilih berkas terlebih dahulu", "error");
+    UI.showToast("Pilih berkas terlebih dahulu.", "error");
     return;
   }
 
@@ -2965,7 +2986,7 @@ async function startImportInitialPreview() {
   const origText = btnGoStep2 ? btnGoStep2.textContent : "";
   if (btnGoStep2) {
     btnGoStep2.disabled = true;
-    btnGoStep2.textContent = "Menganalisis Berkas...";
+    btnGoStep2.textContent = "Menganalisis berkas...";
   }
 
   try {
@@ -3036,15 +3057,15 @@ function renderMappingTable(detectedHeaders, suggestedMapping) {
   tbody.innerHTML = "";
 
   const systemFields = [
-    { key: "title", label: "Judul Pekerjaan", required: true, desc: "Teks judul kepatuhan yang akan dicatat." },
-    { key: "received_on", label: "Tanggal Diterima", required: true, desc: "Format YYYY-MM-DD (contoh: 2026-10-17)." },
-    { key: "category", label: "Kategori", required: false, desc: "Kategori kepatuhan (contoh: APU-PPT, General)." },
-    { key: "requested_by", label: "Pemberi Tugas / Asal", required: false, desc: "Nama divisi / regulator / pihak pemohon." },
-    { key: "due_on", label: "Batas Waktu (Tenggat)", required: false, desc: "Format YYYY-MM-DD (opsional)." },
-    { key: "priority", label: "Prioritas", required: false, desc: "low, normal, high, critical (default: normal)." },
-    { key: "status", label: "Status Pekerjaan", required: false, desc: "not_started, in_progress, waiting, completed, cancelled." },
-    { key: "description", label: "Deskripsi Lengkap", required: false, desc: "Rincian tugas atau latar belakang." },
-    { key: "notes", label: "Catatan Tambahan", required: false, desc: "Catatan internal audit." }
+    { key: "title", label: "Judul Pekerjaan", required: true, desc: "Judul pekerjaan yang akan didaftarkan." },
+    { key: "received_on", label: "Tanggal Diterima", required: true, desc: "Tanggal pekerjaan diterima. Format: YYYY-MM-DD." },
+    { key: "category", label: "Kategori", required: false, desc: "Kategori pekerjaan. Contoh: APU-PPT atau General." },
+    { key: "requested_by", label: "Pemberi Tugas atau Asal", required: false, desc: "Unit kerja, regulator, atau pihak yang memberikan pekerjaan." },
+    { key: "due_on", label: "Tenggat", required: false, desc: "Tanggal penyelesaian. Format: YYYY-MM-DD (opsional)." },
+    { key: "priority", label: "Prioritas", required: false, desc: "Nilai: low, normal, high, atau critical." },
+    { key: "status", label: "Status Pekerjaan", required: false, desc: "Nilai: not_started, in_progress, waiting, completed, atau cancelled." },
+    { key: "description", label: "Deskripsi", required: false, desc: "Uraian pekerjaan dan informasi pendukung." },
+    { key: "notes", label: "Catatan Tambahan", required: false, desc: "Catatan internal atau informasi tambahan (opsional)." }
   ];
 
   systemFields.forEach(field => {
@@ -3061,7 +3082,7 @@ function renderMappingTable(detectedHeaders, suggestedMapping) {
       const star = document.createElement("span");
       star.style.color = "var(--danger)";
       star.style.marginLeft = "4px";
-      star.textContent = "* (Wajib)";
+      star.textContent = "* (wajib)";
       tdSys.appendChild(star);
     }
 
@@ -3073,7 +3094,7 @@ function renderMappingTable(detectedHeaders, suggestedMapping) {
 
     const emptyOpt = document.createElement("option");
     emptyOpt.value = "";
-    emptyOpt.textContent = "-- Abaikan Kolom Ini --";
+    emptyOpt.textContent = "-- Abaikan kolom ini --";
     select.appendChild(emptyOpt);
 
     const preSelectedHeader = suggestedMapping[field.key] || "";
@@ -3116,13 +3137,13 @@ function collectMappingFromUI() {
 async function executeDryRunPreview() {
   const file = AppState.importState.selectedFile;
   if (!file) {
-    UI.showToast("Berkas belum dipilih", "error");
+    UI.showToast("Berkas belum dipilih.", "error");
     return;
   }
 
   const mapping = collectMappingFromUI();
   if (!mapping.title || !mapping.received_on) {
-    UI.showToast("Kolom 'Judul Pekerjaan' dan 'Tanggal Diterima' wajib dipetakan!", "error");
+    UI.showToast('Kolom "Judul Pekerjaan" dan "Tanggal Diterima" wajib dipetakan.', "error");
     return;
   }
 
@@ -3135,7 +3156,7 @@ async function executeDryRunPreview() {
   const origText = btnRun ? btnRun.textContent : "";
   if (btnRun) {
     btnRun.disabled = true;
-    btnRun.textContent = "Menjalankan Validasi & Pratinjau...";
+    btnRun.textContent = "Memeriksa pratinjau dan validasi...";
   }
 
   try {
@@ -3214,20 +3235,20 @@ function renderPreviewTable(result) {
 
       if (!r.is_valid) {
         statusBadge.className = "badge badge-status-cancelled";
-        statusBadge.append(dot, document.createTextNode("Error"));
+        statusBadge.append(dot, document.createTextNode("Tidak Valid"));
       } else if (r.is_duplicate) {
         statusBadge.className = "badge badge-status-waiting";
         statusBadge.append(dot, document.createTextNode("Duplikasi"));
       } else {
         statusBadge.className = "badge badge-status-completed";
-        statusBadge.append(dot, document.createTextNode("Siap Impor"));
+        statusBadge.append(dot, document.createTextNode("Siap Diimpor"));
       }
       tdStatus.appendChild(statusBadge);
 
       // Judul
       const tdTitle = document.createElement("td");
       tdTitle.style.maxWidth = "200px";
-      tdTitle.textContent = r.title || "(Kosong)";
+      tdTitle.textContent = r.title || "(kosong)";
 
       // Kategori
       const tdCat = document.createElement("td");
@@ -3287,10 +3308,10 @@ function renderPreviewTable(result) {
   if (btnCommit && labelCommit) {
     if (importableCount > 0) {
       btnCommit.disabled = false;
-      labelCommit.textContent = `Komit & Simpan Impor (${importableCount} Pekerjaan)`;
+      labelCommit.textContent = `Simpan Hasil Impor (${importableCount} Pekerjaan)`;
     } else {
       btnCommit.disabled = true;
-      labelCommit.textContent = "Tidak Ada Baris Valid untuk Diimpor";
+      labelCommit.textContent = "Tidak ada baris valid untuk diimpor";
     }
   }
 }
@@ -3302,7 +3323,7 @@ async function executeCommitImport() {
   const result = AppState.importState.previewResult;
 
   if (!file || !mapping || !result) {
-    UI.showToast("Data impor tidak lengkap", "error");
+    UI.showToast("Data impor tidak lengkap.", "error");
     return;
   }
 
@@ -3312,19 +3333,19 @@ async function executeCommitImport() {
   const importableCount = isSkipMode ? validRows : (validRows + dupRows);
 
   if (importableCount <= 0) {
-    UI.showToast("Tidak ada data yang dapat diimpor", "error");
+    UI.showToast("Tidak ada data yang dapat diimpor.", "error");
     return;
   }
 
   showConfirmDialog(
-    "Konfirmasi Komit Impor Data",
-    `Apakah Anda yakin ingin memproses impor ${importableCount} data pekerjaan ke dalam database? Salinan cadangan otomatis (pre-import snapshot) akan dibuat demi keamanan sebelum transaksi commit dijalankan.`,
+    "Simpan Hasil Impor",
+    `Simpan ${importableCount} pekerjaan ke database? Cadangan otomatis akan dibuat sebelum data disimpan.`,
     async () => {
       const btnCommit = document.getElementById("btnCommitImport");
       const origText = btnCommit ? btnCommit.innerHTML : "";
       if (btnCommit) {
         btnCommit.disabled = true;
-        btnCommit.textContent = "Memproses Impor & Snapshot Cadangan...";
+        btnCommit.textContent = "Menyimpan hasil impor dan cadangan...";
       }
 
       try {
@@ -3340,7 +3361,7 @@ async function executeCommitImport() {
 
         const res = await API.commitImport(formData);
 
-        UI.showToast("Impor data berhasil diproses!", "success");
+        UI.showToast("Impor data berhasil disimpan.", "success");
 
         // Tampilkan Ringkasan Hasil di Step 4
         const summaryEl = document.getElementById("importResultSummaryText");
@@ -3348,7 +3369,7 @@ async function executeCommitImport() {
           const created = res.imported_rows !== undefined ? res.imported_rows : (res.created_count || 0);
           const skipped = res.skipped_rows !== undefined ? res.skipped_rows : (res.skipped_count || 0);
           const failed = res.failed_rows !== undefined ? res.failed_rows : (res.failed_count || 0);
-          summaryEl.textContent = `Batch #${res.batch_id} selesai. Berhasil membuat ${created} pekerjaan baru, melewati ${skipped} baris duplikasi, dan mencatat ${failed} baris error.`;
+          summaryEl.textContent = `Proses impor #${res.batch_id} selesai. ${created} pekerjaan dibuat, ${skipped} baris duplikasi dilewati, dan ${failed} baris gagal.`;
         }
 
         // Pindah ke Step 4
@@ -3382,7 +3403,7 @@ async function loadImportHistory() {
     const batches = Array.isArray(res) ? res : ((res && res.batches) ? res.batches : []);
     renderImportHistoryTable(batches);
   } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="10" class="empty-state" style="color: var(--danger);">Gagal memuat riwayat: ${err.message}</td></tr>`;
+    renderErrorState(tbody, `Gagal memuat riwayat: ${err.message}`, 10);
   }
 }
 
@@ -3432,18 +3453,18 @@ function renderImportHistoryTable(batches) {
 
     // Dibuat
     const tdCreated = document.createElement("td");
-    tdCreated.innerHTML = `<span class="badge badge-status-completed">${createdCount}</span>`;
+    appendCountBadge(tdCreated, "badge-status-completed", createdCount);
 
     // Dilewati
     const tdSkipped = document.createElement("td");
-    tdSkipped.innerHTML = `<span class="badge badge-status-waiting">${skippedCount}</span>`;
+    appendCountBadge(tdSkipped, "badge-status-waiting", skippedCount);
 
     // Gagal
     const tdFailed = document.createElement("td");
     if (failedCount > 0) {
-      tdFailed.innerHTML = `<span class="badge badge-status-cancelled">${failedCount}</span>`;
+      appendCountBadge(tdFailed, "badge-status-cancelled", failedCount);
     } else {
-      tdFailed.innerHTML = `<span class="badge badge-status-not_started">0</span>`;
+      appendCountBadge(tdFailed, "badge-status-not_started", 0);
     }
 
     // Status Batch
@@ -3457,7 +3478,7 @@ function renderImportHistoryTable(batches) {
       stBadge.append(dot, document.createTextNode("Selesai"));
     } else if (b.status === "rolled_back") {
       stBadge.className = "badge badge-status-cancelled";
-      stBadge.append(dot, document.createTextNode("Dibatalkan (Kompensasi)"));
+      stBadge.append(dot, document.createTextNode("Dibatalkan"));
     } else if (b.status === "failed") {
       stBadge.className = "badge badge-status-cancelled";
       stBadge.append(dot, document.createTextNode("Gagal"));
@@ -3486,8 +3507,8 @@ function renderImportHistoryTable(batches) {
       const btnError = document.createElement("a");
       btnError.className = "btn btn-secondary btn-sm";
       btnError.href = API.getImportErrorReportUrl(b.id);
-      btnError.download = `error_report_batch_${b.id}.csv`;
-      btnError.textContent = "Laporan Error";
+      btnError.download = `laporan_kegagalan_impor_${b.id}.csv`;
+      btnError.textContent = "Laporan Kegagalan";
       btnError.title = "Unduh daftar baris gagal beserta alasan validasi";
       actionWrap.appendChild(btnError);
     }
@@ -3498,7 +3519,7 @@ function renderImportHistoryTable(batches) {
       btnCompensate.className = "btn btn-secondary btn-sm";
       btnCompensate.style.color = "var(--danger)";
       btnCompensate.textContent = "Batalkan";
-      btnCompensate.title = "Batalkan impor dengan tindakan kompensasi (mengarsipkan seluruh pekerjaan batch ini)";
+      btnCompensate.title = "Batalkan impor dengan mengarsipkan seluruh pekerjaan dari proses ini";
       btnCompensate.addEventListener("click", () => compensateImportBatch(b.id, createdCount));
       actionWrap.appendChild(btnCompensate);
     }
@@ -3518,7 +3539,7 @@ async function showImportBatchDetailModal(batchId) {
 
     const titleEl = document.getElementById("importBatchDetailTitle");
     if (titleEl) {
-      titleEl.textContent = `Detail Riwayat Impor Batch #${b.id} (${b.file_name})`;
+      titleEl.textContent = `Detail Proses Impor #${b.id} (${b.file_name})`;
     }
 
     const metaEl = document.getElementById("importBatchMetaInfo");
@@ -3528,17 +3549,31 @@ async function showImportBatchDetailModal(batchId) {
       const failedCount = b.failed_rows !== undefined ? b.failed_rows : (b.failed_count || 0);
       const fmt = (b.file_type || b.file_format || "").toUpperCase();
 
-      metaEl.innerHTML = `
-        <div style="display: flex; gap: 16px; flex-wrap: wrap;">
-          <div><strong>Waktu Impor:</strong> ${UI.formatDateTimeID(b.created_at)}</div>
-          <div><strong>Format:</strong> ${fmt}</div>
-          <div><strong>Total:</strong> ${b.total_rows} baris</div>
-          <div><strong>Dibuat:</strong> <span class="badge badge-status-completed">${createdCount}</span></div>
-          <div><strong>Dilewati:</strong> <span class="badge badge-status-waiting">${skippedCount}</span></div>
-          <div><strong>Gagal:</strong> <span class="badge ${failedCount > 0 ? 'badge-status-cancelled' : 'badge-status-not_started'}">${failedCount}</span></div>
-          <div><strong>Status:</strong> ${b.status}</div>
-        </div>
-      `;
+      metaEl.replaceChildren();
+      const wrap = document.createElement("div");
+      wrap.style.display = "flex";
+      wrap.style.gap = "16px";
+      wrap.style.flexWrap = "wrap";
+      const addMeta = (label, value, badgeClass = "") => {
+        const entry = document.createElement("div");
+        const strong = document.createElement("strong");
+        strong.textContent = `${label}: `;
+        entry.appendChild(strong);
+        if (badgeClass) {
+          appendCountBadge(entry, badgeClass, value);
+        } else {
+          entry.appendChild(document.createTextNode(String(value)));
+        }
+        wrap.appendChild(entry);
+      };
+      addMeta("Waktu Impor", UI.formatDateTimeID(b.created_at));
+      addMeta("Format", fmt);
+      addMeta("Total", `${b.total_rows} baris`);
+      addMeta("Dibuat", createdCount, "badge-status-completed");
+      addMeta("Dilewati", skippedCount, "badge-status-waiting");
+      addMeta("Gagal", failedCount, failedCount > 0 ? "badge-status-cancelled" : "badge-status-not_started");
+      addMeta("Status", b.status);
+      metaEl.appendChild(wrap);
     }
 
     const tbody = document.getElementById("importBatchItemsTableBody");
@@ -3602,7 +3637,7 @@ async function showImportBatchDetailModal(batchId) {
             tdNote.textContent = it.error_message || "Duplikasi dilewati";
           } else {
             tdNote.style.color = "var(--success-text)";
-            tdNote.textContent = "Sukses dibuat";
+            tdNote.textContent = "Berhasil dibuat";
           }
 
           tr.append(tdRow, tdStat, tdTitle, tdReq, tdRec, tdNote);
@@ -3613,29 +3648,29 @@ async function showImportBatchDetailModal(batchId) {
 
     UI.openModal("modalImportBatchDetail");
   } catch (err) {
-    UI.showToast(`Gagal memuat detail batch: ${err.message}`, "error");
+    UI.showToast(`Gagal memuat detail proses impor: ${err.message}`, "error");
   }
 }
 
 function compensateImportBatch(batchId, createdCount) {
   showConfirmDialog(
-    "Konfirmasi Kompensasi Pembatalan Impor",
-    `PERINGATAN: Pembatalan impor batch #${batchId} akan mengarsipkan seluruh ${createdCount} pekerjaan kepatuhan yang dibuat oleh batch ini dan mencatat tindakan kompensasi pada Activity Log audit trail. Lanjutkan?`,
+    "Batalkan Impor",
+    `Pembatalan proses impor #${batchId} akan mengarsipkan ${createdCount} pekerjaan yang dibuat oleh proses ini dan mencatat tindakan tersebut dalam riwayat aktivitas. Lanjutkan?`,
     async () => {
       try {
         const res = await API.compensateBatch(batchId, false);
-        UI.showToast(`Kompensasi berhasil: ${res.compensated_count} pekerjaan diarsipkan`, "success");
+        UI.showToast(`Impor dibatalkan. ${res.compensated_count} pekerjaan diarsipkan.`, "success");
         await loadImportHistory();
         await loadWorkItems();
       } catch (err) {
         if (err.has_edited_items) {
           showConfirmDialog(
-            "Peringatan Khusus: Pekerjaan Telah Diedit",
-            `PERINGATAN KERAS: Terdapat ${err.edited_count} pekerjaan pada batch ini yang telah diedit atau diubah statusnya setelah impor!\n\nApakah Anda benar-benar yakin ingin tetap mengarsipkan pekerjaan yang telah dimodifikasi tersebut?`,
+            "Pekerjaan Telah Diubah",
+            `${err.edited_count} pekerjaan dalam proses impor ini telah diedit atau diubah statusnya setelah impor. Tetap arsipkan pekerjaan tersebut?`,
             async () => {
               try {
                 const forceRes = await API.compensateBatch(batchId, true);
-                UI.showToast(`Kompensasi paksa berhasil: ${forceRes.compensated_count} pekerjaan diarsipkan`, "success");
+                UI.showToast(`Impor dibatalkan. ${forceRes.compensated_count} pekerjaan diarsipkan.`, "success");
                 await loadImportHistory();
                 await loadWorkItems();
               } catch (forceErr) {

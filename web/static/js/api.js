@@ -12,6 +12,9 @@ const API = (() => {
         throw new Error("Gagal mengambil token CSRF dari server");
       }
       const data = await res.json();
+      if (!data || typeof data.csrf_token !== "string" || !/^[a-f0-9]{64}$/.test(data.csrf_token)) {
+        throw new Error("Server mengembalikan token CSRF yang tidak valid");
+      }
       cachedCsrfToken = data.csrf_token;
       return cachedCsrfToken;
     } catch (err) {
@@ -43,7 +46,7 @@ const API = (() => {
     const timeoutMs = options.timeout || 15000;
     const internalCtrl = new AbortController();
     const timeoutId = setTimeout(() => {
-      internalCtrl.abort(new Error(`Permintaan timeout: Server tidak merespons dalam ${timeoutMs / 1000} detik`));
+      internalCtrl.abort(new Error(`Waktu tunggu habis. Server tidak merespons dalam ${timeoutMs / 1000} detik.`));
     }, timeoutMs);
 
     let abortHandler = null;

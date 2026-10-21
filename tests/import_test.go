@@ -481,6 +481,110 @@ func TestImportDuplicateDetectionSkipAndCreate(t *testing.T) {
 	}
 }
 
+func TestImportWorkRegisterExportDefaultsTitleToJudulAndSkipsExistingDuplicates(t *testing.T) {
+	_, baseURL, _, workSvc, cleanup := setupImportTestServer(t)
+	defer cleanup()
+	client, csrfToken := getImportTestClientWithCSRF(t, baseURL)
+
+	ctx := context.Background()
+	existing := []domain.CreateWorkItemInput{
+		{Title: "UAT_TEMPLATE - 0001", RequestedBy: "Project Owner", ReceivedOn: "2026-10-20", Priority: domain.PriorityNormal},
+		{Title: "UAT_0001", RequestedBy: "Project Owner", ReceivedOn: "2026-10-20", Priority: domain.PriorityNormal},
+	}
+	for _, input := range existing {
+		if _, err := workSvc.CreateWorkItem(ctx, input); err != nil {
+			t.Fatalf("gagal menyiapkan pekerjaan existing %q: %v", input.Title, err)
+		}
+	}
+
+	csvContent := "Kode Pekerjaan,Judul,Deskripsi,Kategori,Pemberi Tugas,Tanggal Diterima,Batas Waktu,Prioritas,Status,Progres\n" +
+		"CMP-2026-000003,UAT_TEMPLATE - 0001,,General,Project Owner,2026-10-20,,normal,not_started,0\n" +
+		"CMP-2026-000001,UAT_0001,,General,Project Owner,2026-10-20,,normal,not_started,0\n"
+
+	previewResponse, err := sendMultipartRequest(t, client, baseURL+"/api/import/preview", http.MethodPost, csrfToken, map[string]string{"duplicate_mode": "skip"}, "file", "work-register.csv", []byte(csvContent))
+	if err != nil {
+		t.Fatalf("preview gagal: %v", err)
+	}
+	defer previewResponse.Body.Close()
+
+	var preview domain.ImportPreviewResult
+	if err := json.NewDecoder(previewResponse.Body).Decode(&preview); err != nil {
+		t.Fatalf("decode preview gagal: %v", err)
+	}
+	if got := preview.SuggestedMapping["title"]; got != "Judul" {
+		t.Fatalf("default title mapping salah: mendapat %q, ingin %q", got, "Judul")
+	}
+	if preview.ValidRows != 0 || preview.DuplicateRows != 2 || preview.InvalidRows != 0 {
+		t.Fatalf("hasil preview salah: valid=%d duplicate=%d invalid=%d", preview.ValidRows, preview.DuplicateRows, preview.InvalidRows)
+	}
+	for i, row := range preview.Rows {
+		if !row.IsDuplicate {
+			t.Fatalf("baris %d harus terdeteksi sebagai duplikasi", i+1)
+		}
+		if row.Title != existing[i].Title {
+			t.Fatalf("judul preview baris %d salah: mendapat %q, ingin %q", i+1, row.Title, existing[i].Title)
+		}
+	}
+
+	mappingJSON, err := json.Marshal(preview.SuggestedMapping)
+	if err != nil {
+		t.Fatal(err)
+	}
+	commitResponse, err := sendMultipartRequest(t, client, baseURL+"/api/import/commit", http.MethodPost, csrfToken, map[string]string{
+		"mapping":        string(mappingJSON),
+		"duplicate_mode": "skip",
+	}, "file", "work-register.csv", []byte(csvContent))
+	if err != nil {
+		t.Fatalf("commit skip gagal: %v", err)
+	}
+	defer commitResponse.Body.Close()
+
+	var commit domain.CommitImportResult
+	if err := json.NewDecoder(commitResponse.Body).Decode(&commit); err != nil {
+		t.Fatalf("decode commit gagal: %v", err)
+	}
+	if commit.ImportedRows != 0 || commit.SkippedRows != 2 {
+		t.Fatalf("commit duplikasi harus tidak membuat data: imported=%d skipped=%d", commit.ImportedRows, commit.SkippedRows)
+	}
+	items, err := workSvc.ListWorkItems(ctx, repository.WorkItemFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != len(existing) {
+		t.Fatalf("jumlah pekerjaan berubah setelah commit skip: mendapat %d, ingin %d", len(items), len(existing))
+	}
+}
+
+func TestSuggestColumnMappingRequiresUnambiguousTitle(t *testing.T) {
+	withoutTitle := service.SuggestColumnMapping([]string{"Kode Pekerjaan", "Tanggal Diterima"})
+	if got := withoutTitle["title"]; got != "" {
+		t.Fatalf("header identifier tidak boleh menjadi fallback title: %q", got)
+	}
+
+	ambiguousTitle := service.SuggestColumnMapping([]string{"Judul", "Title", "Tanggal Diterima"})
+	if got := ambiguousTitle["title"]; got != "" {
+		t.Fatalf("title ambigu harus meminta pemetaan manual, bukan memilih %q", got)
+	}
+
+	allHeaders := []string{"Judul", "Deskripsi", "Kategori", "Pemberi Tugas", "Tanggal Diterima", "Batas Waktu", "Prioritas", "Status"}
+	mapping := service.SuggestColumnMapping(allHeaders)
+	expected := map[string]string{
+		"title":        "Judul",
+		"description":  "Deskripsi",
+		"category":     "Kategori",
+		"requested_by": "Pemberi Tugas",
+		"received_on":  "Tanggal Diterima",
+		"due_on":       "Batas Waktu",
+		"priority":     "Prioritas",
+		"status":       "Status",
+	}
+	for field, want := range expected {
+		if got := mapping[field]; got != want {
+			t.Errorf("mapping %s berubah: mendapat %q, ingin %q", field, got, want)
+		}
+	}
+}
+
 // 5. Test Preview Adalah Read-Only (Database Record Count Tidak Berubah)
 func TestImportPreviewIsReadOnly(t *testing.T) {
 	_, baseURL, _, workSvc, cleanup := setupImportTestServer(t)

@@ -16,14 +16,22 @@ import (
 
 // TaskManagementService mengkoordinasikan subtask, checklist, kategori, template, dan recurring tasks
 type TaskManagementService struct {
-	mu           sync.Mutex
-	db           *sql.DB
-	workRepo     *repository.WorkItemRepository
-	activityRepo *repository.ActivityLogRepository
-	subtaskRepo  *repository.SubtaskRepository
-	categoryRepo *repository.CategoryRepository
-	templateRepo *repository.WorkTemplateRepository
-	recurRepo    *repository.RecurringRepository
+	mu            sync.Mutex
+	operationGate *sync.RWMutex
+	db            *sql.DB
+	workRepo      *repository.WorkItemRepository
+	activityRepo  *repository.ActivityLogRepository
+	subtaskRepo   *repository.SubtaskRepository
+	categoryRepo  *repository.CategoryRepository
+	templateRepo  *repository.WorkTemplateRepository
+	recurRepo     *repository.RecurringRepository
+}
+
+// SetOperationGate menyelaraskan evaluasi background dengan penggantian database saat restore.
+func (s *TaskManagementService) SetOperationGate(gate *sync.RWMutex) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.operationGate = gate
 }
 
 func NewTaskManagementService(
@@ -137,7 +145,7 @@ func (s *TaskManagementService) AddSubtask(ctx context.Context, workItemID int64
 	}
 
 	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("gagal commit penambahan subtask: %w", err)
+		return nil, fmt.Errorf("gagal menyimpan penambahan subtask: %w", err)
 	}
 
 	return sub, nil
@@ -197,7 +205,7 @@ func (s *TaskManagementService) ToggleSubtask(ctx context.Context, subtaskID int
 	}
 
 	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("gagal commit toggle subtask: %w", err)
+		return nil, fmt.Errorf("gagal menyimpan perubahan status subtask: %w", err)
 	}
 
 	return sub, nil
@@ -225,7 +233,7 @@ func (s *TaskManagementService) UpdateSubtask(ctx context.Context, subtaskID int
 		return nil, fmt.Errorf("pekerjaan terkait tidak ditemukan: %w", err)
 	}
 	if workItem.ArchivedAt != nil {
-		return nil, errors.New("tidak dapat mengupdate subtask pada pekerjaan yang diarsipkan")
+		return nil, errors.New("tidak dapat memperbarui subtask pada pekerjaan yang diarsipkan")
 	}
 
 	if in.Title != nil {
@@ -269,7 +277,7 @@ func (s *TaskManagementService) UpdateSubtask(ctx context.Context, subtaskID int
 	}
 
 	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("gagal commit update subtask: %w", err)
+		return nil, fmt.Errorf("gagal menyimpan pembaruan subtask: %w", err)
 	}
 
 	return sub, nil
@@ -324,7 +332,7 @@ func (s *TaskManagementService) DeleteSubtask(ctx context.Context, subtaskID int
 	}
 
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("gagal commit penghapusan subtask: %w", err)
+		return fmt.Errorf("gagal menyimpan penghapusan subtask: %w", err)
 	}
 
 	return nil
@@ -392,10 +400,10 @@ func (s *TaskManagementService) UpdateCategory(ctx context.Context, id int64, in
 	// Kategori sistem yang wajib dipertahankan harus dilindungi dari pengubahan nama dan penonaktifan
 	if existing.IsDefault {
 		if strings.TrimSpace(strings.ToLower(in.Name)) != strings.TrimSpace(strings.ToLower(existing.Name)) {
-			return nil, errors.New("nama kategori default sistem dilindungi dan tidak dapat diubah")
+			return nil, errors.New("nama kategori bawaan sistem dilindungi dan tidak dapat diubah")
 		}
 		if in.IsActive != nil && !*in.IsActive {
-			return nil, errors.New("kategori default sistem dilindungi dan tidak dapat dinonaktifkan")
+			return nil, errors.New("kategori bawaan sistem dilindungi dan tidak dapat dinonaktifkan")
 		}
 	}
 
@@ -433,7 +441,7 @@ func (s *TaskManagementService) UpdateCategory(ctx context.Context, id int64, in
 	}
 
 	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("gagal commit pembaruan kategori: %w", err)
+		return nil, fmt.Errorf("gagal menyimpan pembaruan kategori: %w", err)
 	}
 	return existing, nil
 }
@@ -458,7 +466,7 @@ func (s *TaskManagementService) DeleteCategory(ctx context.Context, id int64) er
 
 	// 2. Kategori sistem bawaan (default) dilindungi dan tidak boleh dihapus
 	if isDefault == 1 {
-		return errors.New("kategori default sistem dilindungi dan tidak dapat dihapus")
+		return errors.New("kategori bawaan sistem dilindungi dan tidak dapat dihapus")
 	}
 
 	// 3. Periksa referensi pada work_items (termasuk pekerjaan yang diarsipkan)
@@ -704,7 +712,7 @@ func (s *TaskManagementService) ApplyTemplateWithInput(ctx context.Context, temp
 	}
 
 	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("gagal commit apply template: %w", err)
+		return nil, fmt.Errorf("gagal menyimpan penerapan template: %w", err)
 	}
 
 	return item, nil
@@ -854,6 +862,10 @@ func (s *TaskManagementService) TriggerRecurringGeneration(ctx context.Context, 
 
 // TriggerRecurringWithReport mengevaluasi jadwal yang jatuh tempo dan menghasilkan laporan evaluasi lengkap beserta alasan skip.
 func (s *TaskManagementService) TriggerRecurringWithReport(ctx context.Context, asOfDate string) (*RecurringEvaluationResult, error) {
+	if s.operationGate != nil {
+		s.operationGate.RLock()
+		defer s.operationGate.RUnlock()
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

@@ -82,11 +82,11 @@ func (s *WorkItemService) CreateWorkItem(ctx context.Context, in domain.CreateWo
 		RequestedBy: in.RequestedBy,
 		ReceivedOn:  in.ReceivedOn,
 		DueOn:       in.DueOn,
-		Priority:   in.Priority,
-		Status:     domain.StatusNotStarted,
-		Provenance: domain.ProvenanceManual,
-		CreatedAt:  now,
-		UpdatedAt:  now,
+		Priority:    in.Priority,
+		Status:      domain.StatusNotStarted,
+		Provenance:  domain.ProvenanceManual,
+		CreatedAt:   now,
+		UpdatedAt:   now,
 	}
 
 	if err := s.workRepo.CreateTx(ctx, tx, item); err != nil {
@@ -107,7 +107,7 @@ func (s *WorkItemService) CreateWorkItem(ctx context.Context, in domain.CreateWo
 	}
 
 	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("gagal commit transaksi pembuatan pekerjaan: %w", err)
+		return nil, fmt.Errorf("gagal menyimpan pembuatan pekerjaan: %w", err)
 	}
 
 	return item, nil
@@ -283,7 +283,7 @@ func (s *WorkItemService) UpdateWorkItem(ctx context.Context, id int64, in domai
 	}
 
 	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("gagal commit transaksi pembaruan pekerjaan: %w", err)
+		return nil, fmt.Errorf("gagal menyimpan pembaruan pekerjaan: %w", err)
 	}
 
 	return existing, nil
@@ -327,7 +327,7 @@ func (s *WorkItemService) ArchiveWorkItem(ctx context.Context, id int64) (*domai
 	}
 
 	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("gagal commit transaksi pengarsipan: %w", err)
+		return nil, fmt.Errorf("gagal menyimpan pengarsipan pekerjaan: %w", err)
 	}
 
 	return item, nil
@@ -371,7 +371,7 @@ func (s *WorkItemService) RestoreWorkItem(ctx context.Context, id int64) (*domai
 	}
 
 	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("gagal commit transaksi pemulihan arsip: %w", err)
+		return nil, fmt.Errorf("gagal menyimpan pemulihan pekerjaan: %w", err)
 	}
 
 	return item, nil
@@ -420,7 +420,7 @@ func (s *WorkItemService) AddActivity(ctx context.Context, workItemID int64, in 
 	}
 
 	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("gagal commit transaksi penambahan log: %w", err)
+		return nil, fmt.Errorf("gagal menyimpan catatan aktivitas: %w", err)
 	}
 
 	return log, nil
@@ -474,7 +474,7 @@ func (s *WorkItemService) GetDeletePreview(ctx context.Context, id int64) (*doma
 		Status:           item.Status,
 		SubtaskCount:     item.SubtaskCount,
 		ActivityLogCount: logCount,
-		WarningMessage:   "Tindakan ini bersifat permanen dan tidak dapat dibatalkan. Riwayat aktivitas akan dipertahankan untuk kebutuhan audit trail, tetapi rekaman pekerjaan dan subtask akan dihapus secara permanen.",
+		WarningMessage:   "Tindakan ini bersifat permanen dan tidak dapat dibatalkan. Riwayat aktivitas akan tetap disimpan, tetapi pekerjaan dan subtask akan dihapus secara permanen.",
 	}
 
 	return preview, nil
@@ -510,7 +510,7 @@ func (s *WorkItemService) PermanentDeleteWorkItem(ctx context.Context, id int64,
 
 	// Hapus subtasks/checklist terkait
 	if _, err := tx.ExecContext(ctx, "DELETE FROM subtasks WHERE work_item_id = ?;", id); err != nil {
-		return nil, fmt.Errorf("gagal menghapus subtasks pekerjaan: %w", err)
+		return nil, fmt.Errorf("gagal menghapus subtask pekerjaan: %w", err)
 	}
 
 	// Tombstone pada tabel work_items
@@ -531,7 +531,7 @@ func (s *WorkItemService) PermanentDeleteWorkItem(ctx context.Context, id int64,
 	}
 
 	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("gagal commit transaksi penghapusan permanen: %w", err)
+		return nil, fmt.Errorf("gagal menyimpan penghapusan permanen: %w", err)
 	}
 
 	item.DeletedAt = &now

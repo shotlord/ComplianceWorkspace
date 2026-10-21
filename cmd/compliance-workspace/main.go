@@ -23,7 +23,7 @@ func main() {
 	portFlag := flag.Int("port", 0, "Nomor port HTTP (0 untuk alokasi port dinamis oleh OS)")
 	flag.Parse()
 
-	log.Println("[INFO] Menginisialisasi Compliance Workspace v1.1.0...")
+	log.Println("[INFO] Menginisialisasi Compliance Workspace v1.1.1...")
 
 	cfg, err := config.ResolveConfig("")
 	if err != nil {
@@ -31,6 +31,10 @@ func main() {
 	}
 
 	log.Printf("[INFO] Lokasi basis data: %s", cfg.DBPath)
+
+	if err := database.RecoverInterruptedRestore(cfg.DBPath); err != nil {
+		log.Fatalf("[FATAL] Pemulihan basis data terinterupsi gagal: %v", err)
+	}
 
 	db, err := database.OpenDB(cfg.DBPath)
 	if err != nil {

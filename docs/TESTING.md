@@ -1,96 +1,155 @@
 # Panduan Pengujian & Jaminan Kualitas (Testing)
 
-Dokumen ini menjelaskan strategi pengujian, verifikasi statis, pengujian integrasi otomatis, serta prosedur pengujian portabilitas untuk **Compliance Workspace v1.1.0**.
+Dokumen ini memetakan pemeriksaan yang tersedia untuk **Compliance Workspace v1.1.1**. Semua test harus memakai data fiktif dan direktori temporer; jangan gunakan database UAT, pengguna, atau backup operasional.
 
 ---
 
-## 1. Ikhtisar Strategi Pengujian
+## 1. Lapisan Verifikasi
 
-Kualitas dan integritas sistem diuji melalui 4 lapisan piramida pengujian otomatis:
-
-1. **Pemeriksaan Sintaksis & Linting**:
-   - `node --check` pada seluruh berkas JavaScript frontend (`web/static/js/api.js` dan `app.js`).
-   - `go vet ./...` untuk mendeteksi kesalahan konkurensi, format string, dan potensi bug pada kode Go.
-2. **Unit & Domain Tests**:
-   - Validasi entitas model domain, aturan bisnis nomor penugasan `CMP-YYYY-NNNNNN`, kalkulasi persentase progres, dan kepatuhan konstanta status/prioritas.
-3. **Integration & Regression Tests**:
-   - Pengujian transaksi atomik, integritas SQLite, trigger audit log append-only, sistem migrasi skema 001–006, impor spreadsheet (CSV & XLSX), manajemen tugas, pengarsipan, hingga pemulihan database aktif tanpa restart.
-4. **Portable Smoke Test End-to-End (14 Skenario)**:
-   - Pengujian otomatis biner hasil rilis pada direktori sandbox terisolasi, menguji daur hidup operasional, persistensi, dan pemindahan direktori portabel.
+1. **Automated tests**: test Go, pemeriksaan sintaks JavaScript/PowerShell, dan regresi script packaging.
+2. **Internal QA**: eksekusi automated tests oleh developer, static review, serta pencatatan output, exit code, dan skip.
+3. **Independent QA**: audit dan eksekusi ulang yang terpisah dari bukti developer.
+4. **Manual UAT**: pemeriksaan alur pengguna dan tampilan nyata oleh Project Owner. Kompilasi, unit test, atau pemeriksaan HTTP tidak membuktikan hasil browser/UAT.
 
 ---
 
-## 2. Menjalankan Pengujian Otomatis
+## 2. Quality Gate Umum
 
-### A. Pemeriksaan Sintaksis JavaScript
+Jalankan dari root repository:
+
 ```powershell
 node --check .\web\static\js\api.js
 node --check .\web\static\js\app.js
-```
-
-### B. Analisis Statis Go (Linting)
-```powershell
 go vet ./...
-```
-
-### C. Menjalankan Seluruh Unit & Integration Tests
-Untuk menjalankan seluruh suite pengujian Go secara bersih (tanpa menggunakan cache hasil uji sebelumnya):
-
-```powershell
 go test -count=1 ./...
+$goFiles = Get-ChildItem .\cmd, .\internal, .\tests, .\web -Recurse -Filter *.go | Select-Object -ExpandProperty FullName
+gofmt -l $goFiles
+git diff --check
 ```
 
-Untuk melihat rincian setiap kasus uji (*verbose mode*):
+`gofmt -l` hanya menampilkan file Go yang belum terformat; output kosong berarti bersih. Catat exit code aktual setiap perintah. Node.js bersifat prasyarat untuk `node --check`, bukan dependency runtime aplikasi.
+
+Frontend embedded diuji bersama serving aset, sedangkan sintaks JavaScript juga diperiksa langsung:
+
 ```powershell
-go test -v -count=1 ./tests/...
-```
-
-### D. Menjalankan Rangkaian Uji Spesifik
-Contoh menjalankan pengujian modul tertentu:
-```powershell
-# Uji modul impor dan pemetaan kolom
-go test -v -count=1 ./tests/... -run TestImport
-
-# Uji idempotensi dan recurring tasks
-go test -v -count=1 ./tests/... -run TestTaskManagement
-
-# Uji siklus hidup backup dan pemulihan
-go test -v -count=1 ./tests/... -run TestBackupRestore
-
-# Uji regresi simplifikasi modal (Batch 09)
-go test -v -count=1 ./tests/... -run TestBatch09
+go test -v -count=1 ./tests -run '^Test(FrontendEmbeddedAssetsServing|BrandingAssetsServing|JavaScriptSyntaxValidation)$'
 ```
 
 ---
 
-## 3. Pengujian Portabilitas Otomatis (Portable Smoke Test)
+## 3. Targeted Regression v1.1.1
 
-Pengujian *smoke test* memverifikasi biner rilis portabel secara menyeluruh di lingkungan terisolasi (*sandbox*):
+### A. Security Hardening HTTP dan Frontend
+
+```powershell
+go test -v -count=1 ./tests -run '^Test(SecurityHardening|SecurityMiddlewareRejections|OfflineNoExternalCDNOrAnalytics|RejectNonLocalhostBinding|XSSAndSQLInjectionSafety|FrontendCodeNoUnsafeInnerHTML)'
+```
+
+Cakupan meliputi exact Host/Origin/Referer, CSRF, CSP, body limits, multipart cleanup, loopback binding, referensi eksternal pada aset, dan jalur XSS/SQL injection yang diuji.
+
+### B. Backup, Structural Validation, Fault Injection, dan Operation Gate
+
+```powershell
+go test -v -count=1 ./internal/service -run '^Test(CreateBackupRejectsCorruptedSnapshotFault|RestoreAbortsWhenSafetySnapshotFails|RestoreRollsBackAfterActivationFault|RestoreRejectsBackupSymlink|RestoreOperationGateBlocksConcurrentDatabaseWork|RestoreRejectsStructurallyInvalidBackup|InspectBackupRejectsMigrationHistoryGap|RestoreSupportedLegacyV1BackupMigrates)$'
+go test -v -count=1 ./internal/server -run '^TestRecurringTriggerDoesNotRecursivelyAcquireOperationGate$'
+go test -v -count=1 ./tests -run '^Test(BackupAndRestore|RestoreReject|BackupLifecycle|RestoreSafetyGuard)'
+```
+
+Rangkaian ini memeriksa safety snapshot, rollback aktivasi, validasi struktur dan migration history, restore schema v1 yang didukung, blocking operation gate, serta regresi deadlock recurring/restore dengan timeout terbatas.
+
+### C. Interrupted Restore dan Startup Fail-Closed
+
+```powershell
+go test -v -count=1 ./tests -run '^TestCrashRecovery'
+```
+
+Kasus mencakup first run, recovery rollback valid, active database yang tidak boleh ditimpa, active database zero-byte/korup/foreign schema, struktur atau migration history tidak valid, schema lama yang didukung, schema di atas v6, artefak staging/rollback, serta performance/timeout pemeriksaan startup.
+
+### D. Windows Symlink, Junction, dan Reparse Point
+
+Jalankan pada Windows native dan periksa output verbose:
+
+```powershell
+go test -v -count=1 ./tests -run '^TestCrashRecovery(SymlinkArtifact|WindowsJunctionDirectoryRejected)$'
+```
+
+`TestCrashRecoveryWindowsJunctionDirectoryRejected` di-skip pada non-Windows. Pada Windows, tiga subtest—`ParentDirectoryJunction`, `RollbackArtifactJunction`, dan `StagingArtifactJunction`—dapat di-skip jika `mklink /J` tidak diizinkan lingkungan; ketiganya harus terlihat `PASS` tanpa `SKIP` untuk bukti junction lengkap. Test symbolic link juga dapat di-skip bila pembuatan symlink tidak didukung atau memerlukan privilege yang tidak tersedia. Jangan menyamakan static review dengan hasil Windows native.
+
+### E. UAT-111-01 — CSV Mapping dan Duplicate Detection
+
+```powershell
+go test -v -count=1 ./tests -run '^Test(ImportWorkRegisterExportDefaultsTitleToJudulAndSkipsExistingDuplicates|SuggestColumnMappingRequiresUnambiguousTitle)$'
+```
+
+### F. UAT-111-04 — Deadline Tracker Tujuh Hari
+
+```powershell
+go test -v -count=1 ./tests -run '^TestDeadlineTrackerSevenDayCategorization$'
+```
+
+### G. UAT-111-05 — UX Writing
+
+```powershell
+go test -v -count=1 ./tests -run '^TestUXWritingConsistency$'
+node --check .\web\static\js\app.js
+node --check .\web\static\js\api.js
+```
+
+Test string menjaga istilah dan referensi tombol penting. Kualitas bahasa dan tampilan keseluruhan tetap memerlukan review manusia dan Manual UAT.
+
+### H. REL-111-01 — Packaging Safety
+
+Skrip memerlukan satu executable PE v1.1.1 valid dan satu executable legacy v1.1.0. Ia menyalin script/dokumen ke repository simulasi di `%TEMP%`, tidak memakai `release/` repository aktif, dan membersihkan sandbox miliknya sendiri:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\test-package-release.ps1 `
+  -ValidExecutablePath 'C:\path\to\ComplianceWorkspace-v1.1.1.exe' `
+  -LegacyExecutablePath 'C:\path\to\ComplianceWorkspace-v1.1.0.exe'
+```
+
+Regresi membuktikan sumber hilang dan v1.1.0 ditolak, preflight gagal tidak mengubah output existing, v1.1.1 dapat dipaketkan pada sandbox, hash sumber/paket sama, checksum executable/ZIP dicatat, dan packaging kedua tidak menimpa output.
+
+Syntax PowerShell dapat diperiksa tanpa menjalankan build atau packaging:
+
+```powershell
+$scripts = Get-ChildItem .\scripts\*.ps1
+$failed = $false
+foreach ($script in $scripts) {
+    $tokens = $null
+    $errors = $null
+    [void][System.Management.Automation.Language.Parser]::ParseFile($script.FullName, [ref]$tokens, [ref]$errors)
+    if ($errors.Count -gt 0) { $failed = $true; $errors }
+}
+if ($failed) { exit 1 }
+```
+
+---
+
+## 4. Windows Executable Smoke Test
+
+`scripts/run-smoke-test.ps1` memakai package tetap pada `release/ComplianceWorkspace-v1.1.1-Windows-x64/`. Jalankan hanya terhadap package yang memang diotorisasi; script menghapus dan membuat ulang sandbox repository-local bernama `temp-smoke-v111` dan `temp-smoke-v111-moved`.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\run-smoke-test.ps1
 ```
 
-### 14 Skenario Pengujian yang Diverifikasi Otomatis:
-1. **Penyusunan Sandbox**: Menyiapkan direktori terisolasi `temp-smoke-v110/` tanpa database awal.
-2. **Inisialisasi Pertama**: Startup otomatis, pembuatan `data/compliance.db`, migrasi skema, dan verifikasi aset branding (HTTP 200 pada `/`, `/favicon.ico`, dan logo sidebar).
-3. **Pembuatan Work Item**: Pembuatan pekerjaan baru dan penomoran otomatis `CMP-YYYY-NNNNNN`.
-4. **Manajemen Subtask**: Penambahan checklist dan kalkulasi matematis progres 100%.
-5. **Master Kategori**: Pembuatan kategori baru dengan kode warna kustom.
-6. **Work Templates**: Pembuatan template dan penerapan instan ke pekerjaan kepatuhan.
-7. **Recurring Schedule & Idempotency**: Evaluasi jadwal berulang dan jaminan anti-duplikasi pada periode yang sama.
-8. **Data Import Center**: Validasi format CSV & Excel (XLSX), dry-run preview, dan komit batch atomik.
-9. **Backup & Pemulihan Runtime**: Pembuatan snapshot `VACUUM INTO`, restore database, dan verifikasi operasional langsung tanpa mematikan aplikasi.
-10. **Graceful Shutdown**: Penghentian aman proses server dengan pelepasan kunci SQLite.
-11. **Persistensi Data**: Menjalankan ulang aplikasi dan memvalidasi keutuhan seluruh rekaman yang tersimpan.
-12. **Portabilitas & Relokasi**: Memindahkan seluruh direktori aplikasi ke lokasi baru (`temp-smoke-v110-moved`) dan memverifikasi aplikasi tetap berfungsi normal tanpa perubahan path absolut.
-13. **Verifikasi Lingkungan Offline**: Memastikan tidak ada koneksi keluar ke internet (hanya `127.0.0.1`).
-14. **Kemandirian Single-Binary**: Memastikan aplikasi berjalan mandiri tanpa dependensi runtime eksternal.
+`scripts/smoke-test-portable.ps1` adalah wrapper yang menjalankan script yang sama tanpa parameter; cakupan dan batas buktinya identik.
+
+Script menjalankan 14 label/checkpoint: sandbox fresh start dan aset HTTP, pekerjaan, subtask, kategori, template, recurring/idempotency, impor CSV/XLSX, backup/restore runtime, penghentian proses, restart/persistensi, dan relokasi folder. Beberapa batas bukti perlu dicatat:
+
+- checkpoint 10 menggunakan `Stop-Process -Force`; ini menguji restart setelah process termination, bukan graceful shutdown berbasis `Ctrl+C`/`SIGTERM`;
+- checkpoint 13 dan 14 mencetak assertion offline/single-binary tetapi tidak memasang network monitor atau dependency tracer;
+- source/static tests memeriksa tidak adanya CDN/analytics dan server loopback, tetapi klaim tidak ada koneksi keluar saat runtime memerlukan observasi jaringan terpisah bila dijadikan acceptance criterion;
+- smoke test HTTP tidak menggantikan pemeriksaan tampilan melalui browser.
+
+Untuk skenario startup executable yang lebih terfokus—fresh start, active database valid/korup, interrupted restore, dan artefak recovery—gunakan harness RC/manual yang terisolasi dan catat perintah, data dummy, output, serta exit code. Harness eksternal yang tidak tersimpan di repository harus dilaporkan sebagai bukti manual/developer, bukan automated test repository.
 
 ---
 
-## 4. Kebijakan Keamanan & Privasi Data Uji
+## 5. Data Uji dan Interpretasi Hasil
 
-- **Hanya Data Fiktif**: Seluruh skenario pengujian, data contoh CSV/XLSX, dan tes integrasi wajib menggunakan data sampel fiktif.
-- **Pembersihan Otomatis**: Folder sandbox pengujian (`temp-smoke-*`) dan basis data sementara otomatis dibersihkan setelah pengujian selesai.
-- **Tidak Menyertakan Data Pribadi**: Dilarang menggunakan nama perusahaan riil, nomor identitas asli, dokumen rahasia, maupun kredensial internal dalam repositori kode.
+- Gunakan `t.TempDir()`, `%TEMP%`, atau folder sandbox baru dengan database fiktif.
+- Jangan menyalin database UAT/produksi atau backup pengguna ke test.
+- Laporkan `PASS`, `FAIL`, dan `SKIP` secara terpisah; test function tidak sama dengan jumlah subtest.
+- Test yang tidak selesai atau hanya ditinjau statis berstatus `NOT VERIFIED`, bukan `PASS`.
+- Jangan menjalankan official packaging untuk sekadar menguji dokumentasi atau source sebelum gate rilis mengizinkannya.

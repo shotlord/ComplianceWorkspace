@@ -53,10 +53,10 @@ func TestFrontendEmbeddedAssetsServing(t *testing.T) {
 	requiredSnippets := []string{
 		"Compliance Workspace",
 		"Dashboard",
-		"Work Register",
-		"Activity Log",
-		"Deadline Tracker",
-		"Pengaturan & Backup",
+		"Daftar Pekerjaan",
+		"Riwayat Aktivitas",
+		"Pemantauan Tenggat",
+		"Pengaturan dan Cadangan",
 		"modalCreateWork",
 		"modalEditWork",
 		"modalWorkDetail",
@@ -98,6 +98,73 @@ func TestFrontendEmbeddedAssetsServing(t *testing.T) {
 	defer respApp.Body.Close()
 	if respApp.StatusCode != http.StatusOK {
 		t.Errorf("Ekspektasi 200 OK untuk /js/app.js, didapat: %d", respApp.StatusCode)
+	}
+}
+
+func TestUXWritingConsistency(t *testing.T) {
+	readAsset := func(parts ...string) string {
+		path := filepath.Join(append([]string{"..", "web", "static"}, parts...)...)
+		content, err := os.ReadFile(path)
+		if err != nil {
+			path = filepath.Join(append([]string{"web", "static"}, parts...)...)
+			content, err = os.ReadFile(path)
+		}
+		if err != nil {
+			t.Fatalf("Gagal membaca aset frontend %s: %v", path, err)
+		}
+		return string(content)
+	}
+
+	indexHTML := readAsset("index.html")
+	appJS := readAsset("js", "app.js")
+	allCopy := indexHTML + "\n" + appJS
+
+	requiredCopy := []string{
+		"Daftar Pekerjaan",
+		"Riwayat Aktivitas",
+		"Pemantauan Tenggat",
+		"Pengaturan dan Cadangan",
+		"Jadwal aktif yang dipantau.",
+		"Pilih pekerjaan untuk melihat riwayat aktivitasnya.",
+		"Jadwal berulang diproses saat aplikasi dibuka dan setiap jam.",
+		"Cadangan database disimpan di folder <code>backups/</code>",
+		`Klik "Tambah Pekerjaan" untuk mencatat tugas baru.`,
+		`Klik "Periksa Jadwal" untuk memeriksa jadwal sekarang.`,
+		`Klik "Buat Backup Sekarang" untuk membuatnya.`,
+		`Klik "Tambah Jadwal" untuk membuatnya.`,
+		`Klik "Tambah Template" untuk membuatnya.`,
+	}
+	for _, copy := range requiredCopy {
+		if !strings.Contains(allCopy, copy) {
+			t.Errorf("Teks UI wajib tidak ditemukan: %q", copy)
+		}
+	}
+
+	buttonLabels := []string{
+		"Tambah Pekerjaan",
+		"Periksa Jadwal",
+		"Buat Backup Sekarang",
+		"Tambah Jadwal",
+		"Template CSV",
+		"Template XLSX",
+	}
+	for _, label := range buttonLabels {
+		if !strings.Contains(indexHTML, label) {
+			t.Errorf("Label tombol yang dirujuk tidak ditemukan pada HTML: %q", label)
+		}
+	}
+
+	legacyCopy := []string{
+		"Tidak Ada Pekerjaan Terlambat",
+		`Gunakan tombol "Tambah Pekerjaan"`,
+		"via background ticker",
+		"Segera/siap dievaluasi",
+		"Kategori nonaktif / expired",
+	}
+	for _, copy := range legacyCopy {
+		if strings.Contains(allCopy, copy) {
+			t.Errorf("Teks UI lama masih ditemukan: %q", copy)
+		}
 	}
 }
 
@@ -211,6 +278,113 @@ func TestJavaScriptSyntaxValidation(t *testing.T) {
 			t.Fatalf("Kurung kurawal tidak seimbang pada %s: kedalaman kurung tersisa = %d", file, braceDepth)
 		}
 	}
+}
+
+func TestDeadlineTrackerSevenDayCategorization(t *testing.T) {
+	nodePath, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("Node.js tidak tersedia untuk menjalankan regression test Deadline Tracker")
+	}
+
+	appPath := filepath.Join("..", "web", "static", "js", "app.js")
+	appJS, err := os.ReadFile(appPath)
+	if err != nil {
+		appPath = filepath.Join("web", "static", "js", "app.js")
+		appJS, err = os.ReadFile(appPath)
+	}
+	if err != nil {
+		t.Fatalf("Gagal membaca app.js: %v", err)
+	}
+
+	source := string(appJS)
+	start := strings.Index(source, "function renderDeadlineTracker()")
+	if start == -1 {
+		t.Fatal("Fungsi renderDeadlineTracker tidak ditemukan")
+	}
+	endOffset := strings.Index(source[start:], "function createDeadlineItemCard")
+	if endOffset == -1 {
+		t.Fatal("Batas akhir fungsi renderDeadlineTracker tidak ditemukan")
+	}
+	renderFunction := source[start : start+endOffset]
+
+	harness := `
+"use strict";
+const assert = require("assert");
+const AppState = {
+  workItems: [
+    { work_code: "OVERDUE", due_on: "2026-10-19", status: "in_progress" },
+    { work_code: "TODAY", due_on: "2026-10-20", status: "not_started" },
+    { work_code: "UPCOMING-START", due_on: "2026-10-21", status: "waiting" },
+    { work_code: "UPCOMING-END", due_on: "2026-10-27", status: "in_progress" },
+    { work_code: "BEYOND-ONE", due_on: "2026-10-28", status: "not_started" },
+    { work_code: "BEYOND-FAR", due_on: "2026-10-31", status: "not_started" },
+    { work_code: "NO-DUE", due_on: "", status: "waiting" },
+    { work_code: "COMPLETED", due_on: "2026-10-21", status: "completed" },
+    { work_code: "CANCELLED", due_on: "2026-10-21", status: "cancelled" },
+    { work_code: "ARCHIVED", due_on: "2026-10-21", status: "in_progress", archived_at: "2026-10-20T00:00:00Z" }
+  ]
+};
+function makeNode() {
+  let html = "";
+  return {
+    children: [],
+    textContent: "",
+    get innerHTML() { return html; },
+    set innerHTML(value) { html = value; if (value === "") this.children = []; },
+    appendChild(child) { this.children.push(child); }
+  };
+}
+const elements = {};
+["colOverdueItems", "colTodayItems", "colUpcomingItems", "colNoneItems", "countOverdue", "countToday", "countUpcoming", "countNone"]
+  .forEach(id => { elements[id] = makeNode(); });
+const document = { getElementById(id) { return elements[id] || null; } };
+const UI = {
+  getTodayYYYYMMDD() { return "2026-10-20"; },
+  getDateOffsetYYYYMMDD(days) {
+    assert.strictEqual(days, 7);
+    return "2026-10-27";
+  }
+};
+function createDeadlineItemCard(item, urgency) {
+  return { workCode: item.work_code, urgency: urgency || "" };
+}
+` + renderFunction + `
+renderDeadlineTracker();
+const codes = id => elements[id].children.map(card => card.workCode);
+assert.deepStrictEqual(codes("colOverdueItems"), ["OVERDUE"]);
+assert.deepStrictEqual(codes("colTodayItems"), ["TODAY"]);
+assert.deepStrictEqual(codes("colUpcomingItems"), ["UPCOMING-START", "UPCOMING-END"]);
+assert.deepStrictEqual(codes("colNoneItems"), ["NO-DUE"]);
+const pairs = [
+  ["countOverdue", "colOverdueItems", 1],
+  ["countToday", "colTodayItems", 1],
+  ["countUpcoming", "colUpcomingItems", 2],
+  ["countNone", "colNoneItems", 1]
+];
+pairs.forEach(([counter, column, expected]) => {
+  assert.strictEqual(Number(elements[counter].textContent), expected);
+  assert.strictEqual(elements[column].children.length, expected);
+});
+const shown = ["colOverdueItems", "colTodayItems", "colUpcomingItems", "colNoneItems"].flatMap(codes);
+assert.strictEqual(new Set(shown).size, shown.length);
+assert.ok(!shown.includes("BEYOND-ONE"));
+assert.ok(!shown.includes("BEYOND-FAR"));
+assert.ok(!shown.includes("COMPLETED"));
+assert.ok(!shown.includes("CANCELLED"));
+assert.ok(!shown.includes("ARCHIVED"));
+console.log("Deadline Tracker deterministic categorization: PASS");
+`
+
+	testPath := filepath.Join(t.TempDir(), "deadline_tracker_regression.js")
+	if err := os.WriteFile(testPath, []byte(harness), 0600); err != nil {
+		t.Fatalf("Gagal menulis harness Node sementara: %v", err)
+	}
+	cmd := exec.Command(nodePath, testPath)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("Deadline Tracker regression gagal: %s (error: %v)", string(output), err)
+	}
+	t.Log(strings.TrimSpace(string(output)))
 }
 
 // TestBrandingAssetsServing memverifikasi bahwa aset favicon dan logo sidebar dilayani dengan HTTP 200

@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -54,6 +55,39 @@ func OpenDB(dbPath string) (*sql.DB, error) {
 		}
 	}
 
+	return db, nil
+}
+
+// OpenReadOnlyDB membuka SQLite tanpa hak tulis untuk inspeksi backup.
+// Mode query_only mencegah pemeriksaan integritas mengubah berkas sumber.
+func OpenReadOnlyDB(dbPath string) (*sql.DB, error) {
+	absPath, err := filepath.Abs(dbPath)
+	if err != nil {
+		return nil, fmt.Errorf("gagal menyelesaikan path database read-only: %w", err)
+	}
+
+	urlPath := filepath.ToSlash(absPath)
+	if filepath.VolumeName(absPath) != "" && !strings.HasPrefix(urlPath, "/") {
+		urlPath = "/" + urlPath
+	}
+	dsnURL := &url.URL{Scheme: "file", Path: urlPath}
+	query := dsnURL.Query()
+	query.Set("mode", "ro")
+	query.Add("_pragma", "foreign_keys(ON)")
+	query.Add("_pragma", "query_only(ON)")
+	query.Add("_pragma", "busy_timeout(5000)")
+	dsnURL.RawQuery = query.Encode()
+
+	db, err := sql.Open("sqlite", dsnURL.String())
+	if err != nil {
+		return nil, fmt.Errorf("gagal membuka database SQLite read-only: %w", err)
+	}
+	db.SetMaxOpenConns(1)
+
+	if err := db.Ping(); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("gagal menghubungkan ke database SQLite read-only: %w", err)
+	}
 	return db, nil
 }
 

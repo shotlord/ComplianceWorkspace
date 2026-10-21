@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -42,8 +41,7 @@ func (s *Server) handleCreateSubtask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var in domain.CreateSubtaskInput
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		errorResponse(w, http.StatusBadRequest, "Format JSON tidak valid")
+	if !decodeJSONBody(w, r, &in) {
 		return
 	}
 
@@ -64,8 +62,7 @@ func (s *Server) handleUpdateSubtask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var in domain.UpdateSubtaskInput
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		errorResponse(w, http.StatusBadRequest, "Format JSON tidak valid")
+	if !decodeJSONBody(w, r, &in) {
 		return
 	}
 
@@ -120,8 +117,7 @@ func (s *Server) handleListCategories(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleCreateCategory(w http.ResponseWriter, r *http.Request) {
 	var in domain.CreateCategoryInput
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		errorResponse(w, http.StatusBadRequest, "Format JSON tidak valid")
+	if !decodeJSONBody(w, r, &in) {
 		return
 	}
 
@@ -142,8 +138,7 @@ func (s *Server) handleUpdateCategory(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var in domain.UpdateCategoryInput
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		errorResponse(w, http.StatusBadRequest, "Format JSON tidak valid")
+	if !decodeJSONBody(w, r, &in) {
 		return
 	}
 
@@ -171,7 +166,7 @@ func (s *Server) handleDeleteCategory(w http.ResponseWriter, r *http.Request) {
 		errorResponse(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	jsonResponse(w, http.StatusOK, map[string]string{"message": "Kategori berhasil dihapus secara permanen"})
+	jsonResponse(w, http.StatusOK, map[string]string{"message": "Kategori berhasil dihapus secara permanen."})
 }
 
 // -----------------------------------------------------------------------------
@@ -208,8 +203,7 @@ func (s *Server) handleGetTemplate(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleCreateTemplate(w http.ResponseWriter, r *http.Request) {
 	var in domain.CreateWorkTemplateInput
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		errorResponse(w, http.StatusBadRequest, "Format JSON tidak valid")
+	if !decodeJSONBody(w, r, &in) {
 		return
 	}
 
@@ -230,8 +224,7 @@ func (s *Server) handleUpdateTemplate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var in domain.UpdateWorkTemplateInput
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		errorResponse(w, http.StatusBadRequest, "Format JSON tidak valid")
+	if !decodeJSONBody(w, r, &in) {
 		return
 	}
 
@@ -271,7 +264,9 @@ func (s *Server) handleApplyTemplate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req domain.ApplyTemplateInput
-	_ = json.NewDecoder(r.Body).Decode(&req)
+	if !decodeJSONBody(w, r, &req) {
+		return
+	}
 
 	item, err := s.taskMgmtService.ApplyTemplateWithInput(r.Context(), tplID, req)
 	if err != nil {
@@ -299,8 +294,7 @@ func (s *Server) handleListRecurringSchedules(w http.ResponseWriter, r *http.Req
 
 func (s *Server) handleCreateRecurringSchedule(w http.ResponseWriter, r *http.Request) {
 	var in domain.CreateRecurringScheduleInput
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		errorResponse(w, http.StatusBadRequest, "Format JSON tidak valid")
+	if !decodeJSONBody(w, r, &in) {
 		return
 	}
 
@@ -321,8 +315,7 @@ func (s *Server) handleUpdateRecurringSchedule(w http.ResponseWriter, r *http.Re
 	}
 
 	var in domain.UpdateRecurringScheduleInput
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		errorResponse(w, http.StatusBadRequest, "Format JSON tidak valid")
+	if !decodeJSONBody(w, r, &in) {
 		return
 	}
 
@@ -357,7 +350,9 @@ func (s *Server) handleTriggerRecurring(w http.ResponseWriter, r *http.Request) 
 	var req struct {
 		AsOfDate string `json:"as_of_date"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&req)
+	if !decodeJSONBody(w, r, &req) {
+		return
+	}
 
 	report, err := s.taskMgmtService.TriggerRecurringWithReport(r.Context(), req.AsOfDate)
 	if err != nil {

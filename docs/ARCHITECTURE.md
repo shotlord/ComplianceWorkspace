@@ -1,20 +1,22 @@
-# Arsitektur Sistem Compliance Workspace v1.1.0
+# Arsitektur Sistem Compliance Workspace v1.1.1
 
-Dokumen ini mendokumentasikan arsitektur teknis, desain komponen, mekanisme komunikasi, alur data, serta spesifikasi antarmuka API dari aplikasi **Compliance Workspace v1.1.0**.
+Dokumen ini mendokumentasikan arsitektur teknis, desain komponen, mekanisme komunikasi, alur data, serta spesifikasi antarmuka API dari aplikasi **Compliance Workspace v1.1.1**.
+
+> **Patch v1.1.1 (Unreleased):** arsitektur utama dan schema v6 tetap dipertahankan. Patch menambahkan restore berbasis staging/atomic rename, koneksi inspeksi SQLite read-only, koordinasi operasi database saat restore, exact Host/Origin validation, request limits, dan HTTP timeouts.
 
 ---
 
 ## 1. Ikhtisar & Prinsip Desain
 
-Compliance Workspace v1.1.0 dibangun dengan pendekatan **Local-First, Offline-First, Portable, and Zero-Dependency**. Aplikasi ini dirancang untuk berjalan sebagai executable mandiri pada perangkat pengguna (Windows x64) tanpa memerlukan server web eksternal, runtime terpisah (tanpa Python/Node.js), koneksi internet, maupun database engine mandiri.
+Compliance Workspace v1.1.1 dibangun dengan pendekatan **Local-First, Offline-First, Portable, and Zero-Dependency at Runtime**. Aplikasi ini dirancang untuk berjalan sebagai executable mandiri pada perangkat pengguna (Windows x64) tanpa memerlukan server web eksternal, runtime terpisah (tanpa Python/Node.js), koneksi internet, maupun database engine mandiri.
 
 ### Prinsip Utama
 1. **Single Portable Binary**: Seluruh kode backend Go, driver database SQLite murni, dan aset frontend (HTML, CSS, Vanilla JS, ikon, gambar) dikemas dalam satu biner executable (`ComplianceWorkspace.exe`).
 2. **Offline by Default**: Berjalan sepenuhnya pada alamat loopback `127.0.0.1` pada port acak yang dialokasikan oleh OS. Bebas dari CDN, cloud hosting, font daring, maupun pelacakan eksternal.
-3. **Executable-Relative Paths**: Seluruh penyimpanan (`data/`, `backups/`, `exports/`) diresolusi relatif terhadap lokasi biner fisik executable (`os.Executable()`), bukan working directory atau user profile.
+3. **Executable-Relative Paths**: Database aktif pada `data/` dan cadangan pada `backups/` diresolusi relatif terhadap lokasi biner fisik executable (`os.Executable()`), bukan working directory atau user profile. Folder `exports/` disediakan dalam paket, sedangkan hasil ekspor dikirim sebagai unduhan HTTP ke lokasi yang dipilih peramban.
 4. **Append-Only Auditability**: Setiap mutasi pekerjaan (*work item*) menghasilkan jejak riwayat aktivitas secara atomik di dalam satu transaksi database SQLite yang dilindungi trigger `ABORT`.
 5. **Robust Local Security**: Perlindungan dari Host header spoofing, Origin/Referer check, token CSRF, Content Security Policy (CSP), serta sanitasi injeksi formula spreadsheet (CSV Formula Injection).
-6. **Thread-Safe Hot Restore**: Kemampuan memulihkan basis data secara instan saat aplikasi berjalan (*runtime restore*) dengan penyegaran pool koneksi database secara atomik tanpa mematikan server.
+6. **Thread-Safe Hot Restore**: Cadangan disalin ke staging dan diverifikasi sebelum aktivasi. Safety snapshot wajib berhasil; file aktif lama dipertahankan sebagai rollback sampai database pengganti lolos integrity/foreign-key check dan seluruh pool koneksi diperbarui.
 
 ---
 
@@ -34,7 +36,9 @@ flowchart TD
         subgraph Middlewares ["Security Middleware Pipeline"]
             MW_Host["HostValidatorMiddleware (127.0.0.1 / localhost)"]
             MW_Sec["SecurityHeadersMiddleware (CSP, Nosniff, Frame-Deny)"]
+            MW_Limit["RequestBodyLimitMiddleware"]
             MW_CSRF["CSRFAndOriginMiddleware (Token & Origin Check)"]
+            MW_Gate["DatabaseOperationMiddleware (Operation Gate)"]
         end
 
         subgraph Services ["Service Layer"]
@@ -59,13 +63,14 @@ flowchart TD
     subgraph Storage ["Local Storage (Relative to Executable)"]
         DB[(SQLite Database\ndata/compliance.db)]
         Backups[("Backups Directory\nbackups/*.db")]
-        Exports[("Exports Directory\nexports/*.csv")]
     end
 
-    APIClient -- "HTTP JSON / Localhost" --> MW_Host
+    APIClient -- "HTTP / Loopback" --> MW_Host
     MW_Host --> MW_Sec
-    MW_Sec --> MW_CSRF
-    MW_CSRF --> Router
+    MW_Sec --> MW_Limit
+    MW_Limit --> MW_CSRF
+    MW_CSRF --> MW_Gate
+    MW_Gate --> Router
 
     Router --> WIS
     Router --> TMS
@@ -104,7 +109,7 @@ flowchart TD
     IMPR --> DB
 
     BS -- "VACUUM INTO" --> Backups
-    ES -- "Stream Attachment" --> Exports
+    ES -- "CSV attachment" --> APIClient
 ```
 
 ---
@@ -121,6 +126,7 @@ ComplianceWorkspace/
 │   │   └── config.go               # Resolusi path executable, validasi hak tulis direktori (write-probe)
 │   ├── database/
 │   │   ├── db.go                   # Pembukaan koneksi SQLite, PRAGMA setup, migration runner
+│   │   ├── recovery.go             # Validasi struktur database dan pemulihan restore terinterupsi
 │   │   └── migrations/             # Berkas DDL SQL migrasi skema 001 hingga 006
 │   ├── domain/
 │   │   ├── models.go               # Entitas domain (WorkItem, ActivityLog, Subtask, Category, Template, Recurring)
@@ -157,23 +163,37 @@ ComplianceWorkspace/
 │       └── ComplianceWorkspace_app.ico # Ikon resmi resolusi multi-tier (16x16 s/d 256x256)
 ├── docs/                           # Dokumentasi teknis (ARCHITECTURE, DATABASE, BUILDING, TESTING)
 ├── scripts/                        # Skrip automasi PowerShell untuk build, packaging, dan smoke test
-└── tests/                          # 22 suite pengujian otomatis (unit, integrasi, regresi)
+└── tests/                          # Pengujian otomatis lintas modul (unit, integrasi, regresi)
 ```
 
 ---
 
-## 4. Spesifikasi Kontrak REST API
+## 4. Lifecycle Aplikasi dan Koordinasi Database
 
-Seluruh endpoint API mengembalikan respons JSON dan mewajibkan header keamanan `X-CSRF-Token` serta validasi `Origin` untuk seluruh metode mutasi (`POST`, `PUT`, `DELETE`).
+1. **Startup**: Konfigurasi menyelesaikan jalur `data/compliance.db` dan `backups/` relatif terhadap executable serta memeriksa hak tulis. `database.RecoverInterruptedRestore()` dijalankan sebelum `database.OpenDB()` dan migrasi. Active database yang kosong, korup, atau tidak sesuai struktur ditolak; first run hanya dilanjutkan jika database dan artefak recovery memang belum ada.
+2. **Inisialisasi layanan**: Setelah migrasi 001–006 selesai, repository dan service dibentuk dengan pool database yang sama. Jadwal berulang dievaluasi sekali saat startup.
+3. **Background recurring**: Ticker setiap satu jam memanggil evaluasi jadwal dengan konteks berbatas waktu. `TaskManagementService` memegang satu read lock pada operation gate untuk request recurring maupun ticker.
+4. **Operation gate**: Request database biasa memegang read lock di middleware. Endpoint restore melewati read lock middleware dan `BackupService` memegang exclusive lock selama prosedur restore. Endpoint recurring juga melewati lock middleware karena service mengambil read lock sendiri. Pemisahan ini mencegah recursive `RWMutex.RLock` ketika restore sedang menunggu writer lock.
+5. **Restore runtime**: Kandidat disalin ke staging, divalidasi, dimigrasikan, dan divalidasi ulang. Setelah safety snapshot berhasil, active database dipindahkan ke rollback dan staging diaktifkan dengan rename pada filesystem yang sama. Pool repository/service baru dipasang hanya setelah kandidat aktif lolos pemeriksaan.
+6. **Interrupted restore recovery**: Pada startup berikutnya, active database valid tidak ditimpa rollback lama. Jika active database tidak ada, tepat satu rollback yang aman dan valid dapat dipulihkan; staging tanpa rollback, artefak ambigu, direktori/reparse point, atau kandidat tidak valid menyebabkan startup gagal sebelum `OpenDB()`. Artefak staging dan safety backup tidak dihapus otomatis.
+7. **Shutdown**: Proses menangani `Ctrl+C`/`SIGTERM`, menghentikan ticker, memberi server HTTP waktu lima detik untuk shutdown, lalu menutup koneksi database. Penutupan jendela secara paksa tidak setara dengan shutdown berbasis sinyal.
+
+---
+
+## 5. Spesifikasi Kontrak REST API
+
+Sebagian besar endpoint API mengembalikan JSON; endpoint ekspor, template impor, laporan kesalahan, dan aset statis mengirim berkas atau konten sesuai tipenya. Metode mutasi (`POST`, `PUT`, `DELETE`) mewajibkan header `X-CSRF-Token` yang cocok dengan cookie sesi. Jika dikirim oleh klien, `Origin` atau fallback `Referer` harus cocok persis dengan authority loopback dan port listener.
 
 ### A. Autentikasi Sesi & Keamanan
 - `GET /api/csrf-token` — Mendapatkan token CSRF unik untuk sesi peramban aktif.
 
 ### B. Manajemen Pekerjaan (Work Items)
 - `POST /api/work-items` — Membuat pekerjaan kepatuhan baru dengan penomoran unik `CMP-YYYY-NNNNNN`.
-- `GET /api/work-items` — Mengambil daftar pekerjaan dengan filter teks, kategori, status, prioritas, deadline, dan pengarsipan (`include_archived=true`).
-- `GET /api/work-items/{id}` — Mengambil rincian lengkap pekerjaan beserta subtask dan riwayat log.
+- `GET /api/work-items` — Mengambil daftar pekerjaan dengan pencarian teks, filter kategori/status/prioritas/provenance, opsi arsip (`include_archived=true`), dan pengurutan.
+- `GET /api/work-items/{id}` — Mengambil satu pekerjaan berdasarkan ID.
 - `PUT /api/work-items/{id}` — Memperbarui data pekerjaan dan mencatat perubahan ke Activity Log.
+- `GET /api/work-items/{id}/activities` — Mengambil riwayat aktivitas pekerjaan.
+- `POST /api/work-items/{id}/activities` — Menambahkan catatan aktivitas append-only.
 - `POST /api/work-items/{id}/archive` — Mengarsipkan pekerjaan (*soft-delete*).
 - `POST /api/work-items/{id}/restore` — Memulihkan pekerjaan dari arsip.
 - `GET /api/work-items/{id}/delete-preview` — Mengambil pratinjau dampak penghapusan pekerjaan terarsip.
@@ -189,12 +209,12 @@ Seluruh endpoint API mengembalikan respons JSON dan mewajibkan header keamanan `
 - `GET /api/categories` — Mengambil daftar master kategori aktif dan default.
 - `POST /api/categories` — Menambahkan kategori baru dengan warna visual.
 - `PUT /api/categories/{id}` — Memperbarui nama, deskripsi, atau warna kategori.
-- `DELETE /api/categories/{id}` — Menonaktifkan atau menghapus kategori jika tidak digunakan oleh pekerjaan aktif.
+- `DELETE /api/categories/{id}` — Menghapus kategori nondefault jika tidak direferensikan oleh pekerjaan, template, atau jadwal; status aktif/nonaktif diubah melalui `PUT`.
 
 ### E. Template & Recurring Tasks
-- `GET /api/templates` & `POST /api/templates` — Mengelola cetak biru penugasan kepatuhan.
-- `POST /api/templates/{id}/apply` — Menerapkan template ke form pekerjaan baru.
-- `GET /api/recurring-schedules` & `POST /api/recurring-schedules` — Mengelola jadwal tugas berkala.
+- `GET|POST /api/templates` dan `GET|PUT|DELETE /api/templates/{id}` — Membaca dan mengelola cetak biru penugasan kepatuhan.
+- `POST /api/templates/{id}/apply` — Membuat pekerjaan dan checklist secara atomik dari template dengan kustomisasi input opsional.
+- `GET|POST /api/recurring-schedules` dan `PUT|DELETE /api/recurring-schedules/{id}` — Mengelola jadwal tugas berkala.
 - `POST /api/recurring-schedules/trigger` — Mengevaluasi dan menghasilkan pekerjaan baru dari jadwal berulang secara instan (*idempotent*).
 
 ### F. Data Import Center
@@ -220,9 +240,13 @@ Seluruh endpoint API mengembalikan respons JSON dan mewajibkan header keamanan `
 
 ---
 
-## 5. Pertimbangan Keamanan & Ketahanan Data
+## 6. Pertimbangan Keamanan & Ketahanan Data
 
 1. **Loopback Binding Strictness**: Server HTTP hanya mengikat ke `127.0.0.1` pada port bebas yang ditentukan oleh sistem operasi (`127.0.0.1:0`). Pengikatan ke `0.0.0.0` dilarang keras untuk mencegah akses dari jaringan lokal.
-2. **Perlindungan DNS Rebinding & Host Validation**: Middleware memverifikasi kecocokan header `Host` terhadap `127.0.0.1:[port]` dan `localhost:[port]`.
+2. **Perlindungan DNS Rebinding & Host Validation**: Middleware memverifikasi kecocokan persis header `Host` terhadap `127.0.0.1:[port]` atau `localhost:[port]` dengan port listener yang aktif.
 3. **Penyelarasan Zona Waktu**: Seluruh penanda waktu kejadian disimpan dalam format standar UTC RFC3339 di database, dan diformat ke zona waktu lokal pengguna (`Asia/Jakarta`) saat disajikan di antarmuka web.
-4. **Proteksi CSV Formula Injection**: Karakter berisiko seperti `=`, `+`, `-`, `@`, tab (`\t`), dan newline (`\r`) pada seluruh data string disanitasi secara otomatis sebelum diekspor ke berkas CSV demi mencegah eksekusi formula berbahaya pada Microsoft Excel.
+4. **Proteksi CSV Formula Injection**: Nilai teks yang diawali `=`, `+`, `-`, `@`, tab (`\t`), atau carriage return (`\r`) diberi prefiks aman sebelum diekspor ke CSV untuk mengurangi risiko interpretasi sebagai formula spreadsheet.
+5. **Batas HTTP Eksplisit**: Server menetapkan read-header/read/write/idle timeout, batas header, batas JSON 1 MiB, serta batas request impor 11 MiB (file maksimum 10 MiB ditambah overhead multipart).
+6. **CSRF dan Source Validation**: Cookie token acak 32-byte bersifat `HttpOnly` dan `SameSite=Strict`; request mutasi harus mengirim token yang sama melalui `X-CSRF-Token`. Origin/Referer nonlokal ditolak, tetapi kontrol ini bukan pengganti autentikasi jaringan.
+7. **CSP & DOM Safety**: CSP membatasi skrip, koneksi, objek, frame, dan form ke kebijakan lokal. Data tidak tepercaya pada jalur UI yang diaudit dirender sebagai teks atau di-escape sebelum masuk ke HTML.
+8. **Batas Arsitektur**: Aplikasi adalah workspace personal tanpa autentikasi pengguna atau enkripsi database bawaan. Keamanan file tetap bergantung pada kontrol akun dan filesystem sistem operasi; server tidak boleh dipublikasikan ke LAN atau internet.

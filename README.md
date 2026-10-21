@@ -1,4 +1,4 @@
-# Compliance Workspace v1.1.0
+# Compliance Workspace v1.1.1
 
 Aplikasi web lokal, mandiri (*portable*), dan *offline-first* yang dirancang khusus untuk **Compliance Officer** guna mengelola pencatatan penugasan kepatuhan (*Work Items*), subtask & checklist, manajemen kategori, template pekerjaan, tugas berulang (*recurring tasks*), pusat impor massal (*Data Import Center*), serta jejak audit aktivitas (*Activity Log*) secara terstruktur, aman, dan tanpa biaya operasional.
 
@@ -6,7 +6,7 @@ Aplikasi web lokal, mandiri (*portable*), dan *offline-first* yang dirancang khu
 
 ## Daftar Isi
 - [Ikhtisar](#ikhtisar)
-- [Fitur Utama v1.1.0](#fitur-utama-v110)
+- [Fitur Utama v1.1.1](#fitur-utama-v111)
 - [Teknologi yang Digunakan](#teknologi-yang-digunakan)
 - [Persyaratan Sistem](#persyaratan-sistem)
 - [Unduhan Aplikasi (GitHub Releases)](#unduhan-aplikasi-github-releases)
@@ -20,13 +20,15 @@ Aplikasi web lokal, mandiri (*portable*), dan *offline-first* yang dirancang khu
 
 ## Ikhtisar
 
-Compliance Workspace v1.1.0 dibangun untuk menjawab kebutuhan pelacakan aktivitas kepatuhan yang portabel dan dapat dipindahkan antar-laptop tanpa memerlukan instalasi interpreter bahasa (seperti Python), lingkungan Node.js, layanan server database eksternal, maupun ketergantungan pada koneksi internet dan cloud API berbayar.
+Compliance Workspace v1.1.1 dibangun untuk menjawab kebutuhan pelacakan aktivitas kepatuhan yang portabel dan dapat dipindahkan antar-laptop tanpa memerlukan instalasi interpreter bahasa (seperti Python), lingkungan Node.js, layanan server database eksternal, maupun ketergantungan pada koneksi internet dan cloud API berbayar.
 
 Seluruh antarmuka web modern disematkan langsung ke dalam biner eksekusi (*single executable binary*) dengan ikon Windows resmi, dan basis data disimpan secara lokal menggunakan mesin SQLite murni dalam folder `data/` yang diresolusi relatif terhadap lokasi biner fisik.
 
+> **Status rilis:** source saat ini menargetkan v1.1.1 dengan heading changelog `Unreleased`. Hingga Project Owner mengotorisasi dan menerbitkan paket baru, v1.1.0 tetap menjadi rilis stabil yang tersedia bagi pengguna akhir.
+
 ---
 
-## Fitur Utama v1.1.0
+## Fitur Utama v1.1.1
 
 ### 1. Dashboard Ringkasan Kepatuhan
 - Metrik visual seketika: Total Pekerjaan, Belum Mulai, Dalam Proses, Menunggu, Selesai, dan Melewati Deadline (*Overdue*).
@@ -67,19 +69,19 @@ Seluruh antarmuka web modern disematkan langsung ke dalam biner eksekusi (*singl
 ### 6. Settings, Backup & Restore
 - Pencadangan konsisten database SQLite menggunakan perintah mesin `VACUUM INTO` ke folder `backups/`.
 - Verifikasi integritas otomatis pada setiap berkas cadangan melalui `PRAGMA integrity_check` dan validasi versi skema.
-- Pemulihan (*restore*) instan tanpa mematikan aplikasi dengan pembuatan salinan darurat otomatis (*safety snapshot*) sebelum database ditimpa.
+- Pemulihan (*restore*) runtime melalui staging tervalidasi dengan pembuatan salinan pengaman (*safety snapshot*) sebelum database aktif diganti.
 - Manajemen siklus hidup berkas cadangan: penghapusan berkas usang secara tunggal maupun massal dengan jaminan retensi minimal 1 berkas cadangan valid.
 
 ### 7. Ekspor Laporan Excel (CSV dengan BOM)
 - Ekspor seluruh daftar pekerjaan atau log aktivitas ke format CSV standar.
 - Disertai **UTF-8 Byte Order Mark (BOM)** agar langsung terbuka rapi pada Microsoft Excel tanpa teks berantakan.
-- Proteksi aktif terhadap ancaman **CSV Formula Injection** (`=`, `+`, `-`, `@`, `\t`, `\r`).
+- Proteksi **CSV Formula Injection** untuk nilai teks yang diawali `=`, `+`, `-`, `@`, tab (`\t`), atau carriage return (`\r`).
 
 ---
 
 ## Teknologi yang Digunakan
 
-- **Bahasa Pemrograman**: Go 1.22+ (Standard Library `net/http`, `database/sql`, `embed`).
+- **Bahasa Pemrograman**: Go 1.27.2 (Standard Library `net/http`, `database/sql`, `embed`).
 - **Driver Basis Data**: `modernc.org/sqlite` (Pure Go, 100% tanpa CGO / C-Compiler).
 - **Pemrosesan Spreadsheet**: `github.com/xuri/excelize/v2` (Pure Go).
 - **Frontend**: HTML5, CSS3 murni, dan Vanilla JavaScript (ES6+), disematkan melalui Go `embed`.
@@ -102,7 +104,7 @@ Pengguna akhir tidak perlu menginstal Go atau mengompilasi kode program:
 
 1. Buka halaman **Releases** pada repositori GitHub resmi:
    [https://github.com/shotlord/ComplianceWorkspace/releases](https://github.com/shotlord/ComplianceWorkspace/releases)
-2. Unduh paket distribusi portabel terbaru:
+2. Unduh paket distribusi stabil terbaru (v1.1.0):
    **`ComplianceWorkspace-v1.1.0-Windows-x64.zip`**
 3. *(Disarankan)* Unduh berkas **`checksums-sha256.txt`** dan verifikasi keaslian paket di PowerShell:
    ```powershell
@@ -122,18 +124,18 @@ Pengguna akhir tidak perlu menginstal Go atau mengompilasi kode program:
    ```text
    [INFO] Server aktif dan mendengarkan pada: http://127.0.0.1:54321
    ```
-4. Peramban web bawaan akan otomatis terbuka ke alamat tersebut.
+4. Buka alamat tersebut secara manual pada peramban web.
 5. Untuk menentukan port tertentu melalui terminal:
    ```powershell
    .\ComplianceWorkspace.exe -port 8080
    ```
-6. Untuk menghentikan aplikasi, tekan `Ctrl + C` pada terminal atau tutup jendela konsol. Aplikasi akan melakukan penutupan tertib (*graceful shutdown*).
+6. Untuk penutupan tertib (*graceful shutdown*), tekan `Ctrl + C` pada terminal. Menutup paksa proses atau jendela konsol tidak menjamin jalur shutdown berbasis sinyal selesai.
 
 > **Catatan Windows SmartScreen**: Karena aplikasi portabel ini didistribusikan tanpa sertifikat digital komersial (EV Code Signing), Windows Defender SmartScreen mungkin menampilkan layar *"Windows protected your PC"*. Klik **More info** lalu pilih **Run anyway**.
 
 ### Metode 2: Menjalankan dari Source Code (Pengembang)
 
-1. Pastikan Go 1.22+ terpasang pada komputer Anda.
+1. Pastikan Go 1.27.2 terpasang pada komputer Anda.
 2. Buka terminal pada root direktori repositori.
 3. Jalankan perintah:
    ```powershell
@@ -153,16 +155,19 @@ go test -count=1 ./...
 go vet ./...
 
 # 2. Kompilasi biner Windows x64 dengan ikon resmi
-powershell -ExecutionPolicy Bypass -File .\scripts\build-windows.ps1
+$buildDir = Join-Path $env:TEMP ("ComplianceWorkspace-v1.1.1-build-" + (Get-Date -Format "yyyyMMdd-HHmmss"))
+New-Item -ItemType Directory -Path $buildDir | Out-Null
+$executablePath = Join-Path $buildDir "ComplianceWorkspace-v1.1.1-Windows-x64.exe"
+powershell -ExecutionPolicy Bypass -File .\scripts\build-windows.ps1 -OutputPath $executablePath
 
-# 3. Buat paket rilis portabel (ZIP dan checksums)
-powershell -ExecutionPolicy Bypass -File .\scripts\package-release.ps1
+# 3. Setelah source freeze dan otorisasi rilis, buat paket portabel
+powershell -ExecutionPolicy Bypass -File .\scripts\package-release.ps1 -ExecutablePath $executablePath
 
 # 4. Jalankan pengujian portabilitas menyeluruh (14 skenario)
 powershell -ExecutionPolicy Bypass -File .\scripts\run-smoke-test.ps1
 ```
 
-Rincian lengkap langkah build dan pengujian dapat dipelajari pada [docs/BUILDING.md](docs/BUILDING.md) dan [docs/TESTING.md](docs/TESTING.md).
+`package-release.ps1` tidak boleh dijalankan sebagai packaging resmi sebelum gate rilis memberi otorisasi. Rincian kontrak `-OutputPath`, `-ExecutablePath`, `-SkipTests`, provenance commit, dan batas bukti smoke test dijelaskan pada [docs/BUILDING.md](docs/BUILDING.md) dan [docs/TESTING.md](docs/TESTING.md).
 
 ---
 
@@ -172,7 +177,7 @@ Seluruh berkas operasional disimpan secara lokal relatif terhadap lokasi berkas 
 
 - **`data/compliance.db`**: Basis data utama SQLite. Dibuat dan dimigrasikan secara otomatis saat aplikasi pertama kali dijalankan.
 - **`backups/*.db`**: Berkas snapshot cadangan konsisten SQLite hasil perintah `VACUUM INTO` dan safety snapshot otomatis.
-- **`exports/*.csv`**: Folder tujuan ekspor laporan data pekerjaan dan log aktivitas.
+- **`exports/`**: Folder kosong yang disediakan dalam paket portabel. Ekspor aplikasi dikirim sebagai unduhan HTTP; lokasi akhir file ditentukan oleh pengaturan peramban.
 
 Untuk memindahkan aplikasi ke perangkat laptop lain, cukup matikan aplikasi dan salin seluruh folder aplikasi ke perangkat tujuan.
 
@@ -194,5 +199,6 @@ Untuk pemahaman teknis mendalam mengenai arsitektur, basis data, dan tata kelola
 - **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**: Diagram arsitektur, pipeline middleware, spesifikasi endpoint REST API, dan alur data internal.
 - **[docs/DATABASE.md](docs/DATABASE.md)**: Skema DDL tabel SQLite, indeks performa, transaksi atomik, migrasi 001–006, dan pola tombstone penghapusan aman.
 - **[docs/BUILDING.md](docs/BUILDING.md)**: Prosedur kompilasi biner Windows x64, kompilasi resource ikon `go-winres`, dan packaging rilis.
-- **[docs/TESTING.md](docs/TESTING.md)**: Panduan eksekusi pengujian unit, integrasi, static checks, dan portable smoke test 14/14.
+- **[docs/TESTING.md](docs/TESTING.md)**: Panduan pengujian unit, integrasi, static checks, targeted regression, serta cakupan dan batas portable smoke test.
+- **[SECURITY.md](SECURITY.md)**: Model keamanan, batas penggunaan, dan cara melaporkan kerentanan tanpa data sensitif.
 - **[CHANGELOG.md](CHANGELOG.md)**: Catatan riwayat perubahan dan peningkatan setiap rilis.

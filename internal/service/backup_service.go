@@ -34,21 +34,41 @@ type BackupItem struct {
 // BackupService mengelola proses backup konsisten (VACUUM INTO) dan restore basis data
 type BackupService struct {
 	mu              sync.RWMutex
+	operationGate   *sync.RWMutex
 	workItemService *WorkItemService
-	taskMgmtSvc    *TaskManagementService
+	taskMgmtSvc     *TaskManagementService
 	importSvc       *ImportService
 	dbPath          string
 	backupDir       string
+	faultInjector   func(point, path string) error
 }
 
 func NewBackupService(workItemService *WorkItemService, taskMgmtSvc *TaskManagementService, importSvc *ImportService, dbPath, backupDir string) *BackupService {
-	return &BackupService{
+	gate := &sync.RWMutex{}
+	service := &BackupService{
+		operationGate:   gate,
 		workItemService: workItemService,
-		taskMgmtSvc:    taskMgmtSvc,
-		importSvc:      importSvc,
-		dbPath:         dbPath,
-		backupDir:      backupDir,
+		taskMgmtSvc:     taskMgmtSvc,
+		importSvc:       importSvc,
+		dbPath:          dbPath,
+		backupDir:       backupDir,
 	}
+	if taskMgmtSvc != nil {
+		taskMgmtSvc.SetOperationGate(gate)
+	}
+	return service
+}
+
+// OperationGate mengoordinasikan request biasa dengan penggantian koneksi saat restore.
+func (s *BackupService) OperationGate() *sync.RWMutex {
+	return s.operationGate
+}
+
+func (s *BackupService) injectFault(point, path string) error {
+	if s.faultInjector == nil {
+		return nil
+	}
+	return s.faultInjector(point, path)
 }
 
 func formatBytes(b int64) string {
@@ -67,50 +87,142 @@ func formatBytes(b int64) string {
 func validateBackupFilename(filename string) (string, error) {
 	trimmed := strings.TrimSpace(filename)
 	if trimmed == "" {
-		return "", errors.New("nama file cadangan tidak boleh kosong")
+		return "", errors.New("nama berkas cadangan tidak boleh kosong")
 	}
 	cleaned := filepath.Clean(trimmed)
 	if cleaned != filepath.Base(cleaned) || strings.Contains(cleaned, "..") || strings.ContainsAny(cleaned, `/\:`) {
-		return "", errors.New("nama file cadangan tidak valid atau mengandung karakter berbahaya")
+		return "", errors.New("nama berkas cadangan tidak valid atau mengandung karakter berbahaya")
 	}
-	if !strings.HasSuffix(cleaned, ".db") && !strings.HasSuffix(cleaned, ".sqlite") {
-		return "", errors.New("ekstensi file cadangan harus berupa .db atau .sqlite")
+	lowerName := strings.ToLower(cleaned)
+	if !strings.HasSuffix(lowerName, ".db") && !strings.HasSuffix(lowerName, ".sqlite") {
+		return "", errors.New("ekstensi berkas cadangan harus berupa .db atau .sqlite")
 	}
 	return cleaned, nil
 }
 
+func samePath(a, b string) bool {
+	return strings.EqualFold(filepath.Clean(a), filepath.Clean(b))
+}
+
+func ensureRealDirectory(dir string) (string, error) {
+	absDir, err := filepath.Abs(dir)
+	if err != nil {
+		return "", fmt.Errorf("gagal menyelesaikan direktori: %w", err)
+	}
+	info, err := os.Lstat(absDir)
+	if err != nil {
+		return "", err
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return "", errors.New("direktori cadangan tidak valid atau merupakan symbolic link/reparse point")
+	}
+	resolved, err := filepath.EvalSymlinks(absDir)
+	if err != nil {
+		return "", fmt.Errorf("gagal memvalidasi direktori cadangan: %w", err)
+	}
+	resolved, err = filepath.Abs(resolved)
+	if err != nil {
+		return "", err
+	}
+	// Gunakan path hasil resolusi untuk seluruh containment check. Windows dapat
+	// menormalkan nama panjang menjadi 8.3 tanpa berarti direktori adalah reparse point.
+	return resolved, nil
+}
+
+func secureExistingBackupPath(backupDir, filename string) (string, os.FileInfo, error) {
+	cleaned, err := validateBackupFilename(filename)
+	if err != nil {
+		return "", nil, err
+	}
+	realDir, err := ensureRealDirectory(backupDir)
+	if err != nil {
+		return "", nil, fmt.Errorf("direktori cadangan tidak aman: %w", err)
+	}
+	target := filepath.Join(realDir, cleaned)
+	info, err := os.Lstat(target)
+	if err != nil {
+		return "", nil, err
+	}
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		return "", nil, errors.New("berkas cadangan harus berupa berkas biasa dan bukan symbolic link/reparse point")
+	}
+	resolved, err := filepath.EvalSymlinks(target)
+	if err != nil {
+		return "", nil, fmt.Errorf("gagal memvalidasi jalur cadangan: %w", err)
+	}
+	resolved, err = filepath.Abs(resolved)
+	if err != nil {
+		return "", nil, err
+	}
+	rel, err := filepath.Rel(realDir, resolved)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) || filepath.IsAbs(rel) {
+		return "", nil, errors.New("jalur cadangan berada di luar direktori cadangan")
+	}
+	if !samePath(target, resolved) {
+		return "", nil, errors.New("symbolic link/reparse point pada berkas cadangan tidak diizinkan")
+	}
+	return target, info, nil
+}
+
+func secureExistingDatabasePath(dbPath string) (string, string, error) {
+	dataDir, err := ensureRealDirectory(filepath.Dir(dbPath))
+	if err != nil {
+		return "", "", fmt.Errorf("direktori database tidak aman: %w", err)
+	}
+	absDB, err := filepath.Abs(dbPath)
+	if err != nil {
+		return "", "", err
+	}
+	info, err := os.Lstat(absDB)
+	if err != nil {
+		return "", "", err
+	}
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		return "", "", errors.New("database aktif harus berupa berkas biasa dan bukan symbolic link/reparse point")
+	}
+	resolved, err := filepath.EvalSymlinks(absDB)
+	if err != nil {
+		return "", "", err
+	}
+	resolved, err = filepath.Abs(resolved)
+	if err != nil {
+		return "", "", err
+	}
+	expected := filepath.Join(dataDir, filepath.Base(absDB))
+	if !samePath(expected, resolved) {
+		return "", "", errors.New("database aktif melalui symbolic link/reparse point tidak diizinkan")
+	}
+	return resolved, dataDir, nil
+}
+
+func randomSuffix() (string, error) {
+	randBytes := make([]byte, 4)
+	if _, err := rand.Read(randBytes); err != nil {
+		return "", fmt.Errorf("gagal membuat nama berkas acak: %w", err)
+	}
+	return hex.EncodeToString(randBytes), nil
+}
+
 // getBackupFileInfo mengekstrak versi skema dan status integritas berkas cadangan secara aman
 func getBackupFileInfo(ctx context.Context, filePath string) (int, string) {
-	db, err := database.OpenDB(filePath)
+	maxVer, err := database.ValidateDatabaseFile(ctx, filePath)
 	if err != nil {
 		return 0, "corrupt"
 	}
-	defer db.Close()
-
-	var integrity string
-	if err := db.QueryRowContext(ctx, "PRAGMA integrity_check;").Scan(&integrity); err != nil || integrity != "ok" {
-		return 0, "corrupt"
-	}
-
-	var hasMigrations int
-	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='schema_migrations'").Scan(&hasMigrations)
-	if hasMigrations == 0 {
-		return 0, "corrupt"
-	}
-
-	var maxVer int
-	_ = db.QueryRowContext(ctx, "SELECT COALESCE(MAX(version), 0) FROM schema_migrations;").Scan(&maxVer)
 	return maxVer, "valid"
 }
 
 // ListBackups mengambil daftar seluruh file backup pada folder backups/
 func (s *BackupService) ListBackups() ([]*BackupItem, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	entries, err := os.ReadDir(s.backupDir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return []*BackupItem{}, nil
 		}
-		return nil, fmt.Errorf("gagal membaca folder backup: %w", err)
+		return nil, fmt.Errorf("gagal membaca folder cadangan: %w", err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -122,16 +234,15 @@ func (s *BackupService) ListBackups() ([]*BackupItem, error) {
 			continue
 		}
 		name := entry.Name()
-		if !strings.HasSuffix(name, ".db") && !strings.HasSuffix(name, ".sqlite") {
+		lowerName := strings.ToLower(name)
+		if !strings.HasSuffix(lowerName, ".db") && !strings.HasSuffix(lowerName, ".sqlite") {
 			continue
 		}
 
-		info, err := entry.Info()
+		filePath, info, err := secureExistingBackupPath(s.backupDir, name)
 		if err != nil {
 			continue
 		}
-
-		filePath := filepath.Join(s.backupDir, name)
 		ver, status := getBackupFileInfo(ctx, filePath)
 
 		items = append(items, &BackupItem{
@@ -157,17 +268,22 @@ func (s *BackupService) CreateBackup(ctx context.Context) (*BackupItem, error) {
 	defer s.mu.Unlock()
 
 	if err := os.MkdirAll(s.backupDir, 0755); err != nil {
-		return nil, fmt.Errorf("gagal membuat direktori backup: %w", err)
+		return nil, fmt.Errorf("gagal membuat direktori cadangan: %w", err)
+	}
+	backupDir, err := ensureRealDirectory(s.backupDir)
+	if err != nil {
+		return nil, fmt.Errorf("direktori cadangan tidak aman: %w", err)
 	}
 
 	// Buat nama file unik: compliance_backup_YYYYMMDD_HHMMSS_<random8>.db
-	randBytes := make([]byte, 4)
-	_, _ = rand.Read(randBytes)
-	randSuffix := hex.EncodeToString(randBytes)
+	randSuffix, err := randomSuffix()
+	if err != nil {
+		return nil, err
+	}
 
 	timestamp := time.Now().UTC().Format("20060102_150405")
 	filename := fmt.Sprintf("compliance_backup_%s_%s.db", timestamp, randSuffix)
-	targetPath := filepath.Join(s.backupDir, filename)
+	targetPath := filepath.Join(backupDir, filename)
 
 	// Pastikan database aktif siap
 	activeDB := s.workItemService.GetDB()
@@ -183,35 +299,21 @@ func (s *BackupService) CreateBackup(ctx context.Context) (*BackupItem, error) {
 		_ = os.Remove(targetPath)
 		return nil, fmt.Errorf("eksekusi VACUUM INTO gagal: %w", err)
 	}
+	if err := s.injectFault("after_backup_vacuum", targetPath); err != nil {
+		_ = os.Remove(targetPath)
+		return nil, fmt.Errorf("kegagalan setelah pembuatan cadangan: %w", err)
+	}
 
 	// Lakukan pemeriksaan integritas pada file backup yang baru dibuat
-	checkDB, err := database.OpenDB(targetPath)
+	maxVer, err := database.ValidateDatabaseFile(ctx, targetPath)
 	if err != nil {
 		_ = os.Remove(targetPath)
-		return nil, fmt.Errorf("gagal membuka file cadangan untuk verifikasi: %w", err)
-	}
-
-	var integrityResult string
-	err = checkDB.QueryRowContext(ctx, "PRAGMA integrity_check;").Scan(&integrityResult)
-	if err != nil || integrityResult != "ok" {
-		_ = checkDB.Close()
-		_ = os.Remove(targetPath)
-		return nil, fmt.Errorf("pemeriksaan integritas cadangan gagal: %v (%s)", err, integrityResult)
-	}
-
-	// Pastikan tabel metadata migrasi ada dan valid
-	var maxVer int
-	var migrationCount int
-	err = checkDB.QueryRowContext(ctx, "SELECT COUNT(*), COALESCE(MAX(version), 0) FROM schema_migrations;").Scan(&migrationCount, &maxVer)
-	_ = checkDB.Close()
-	if err != nil || migrationCount == 0 {
-		_ = os.Remove(targetPath)
-		return nil, fmt.Errorf("verifikasi tabel migrasi pada cadangan gagal: %w", err)
+		return nil, fmt.Errorf("verifikasi integritas cadangan gagal: %w", err)
 	}
 
 	info, err := os.Stat(targetPath)
 	if err != nil {
-		return nil, fmt.Errorf("gagal membaca info file cadangan: %w", err)
+		return nil, fmt.Errorf("gagal membaca informasi berkas cadangan: %w", err)
 	}
 
 	return &BackupItem{
@@ -241,10 +343,14 @@ func (s *BackupService) countValidBackups() (int, []string, error) {
 			continue
 		}
 		name := entry.Name()
-		if !strings.HasSuffix(name, ".db") && !strings.HasSuffix(name, ".sqlite") {
+		lowerName := strings.ToLower(name)
+		if !strings.HasSuffix(lowerName, ".db") && !strings.HasSuffix(lowerName, ".sqlite") {
 			continue
 		}
-		filePath := filepath.Join(s.backupDir, name)
+		filePath, _, err := secureExistingBackupPath(s.backupDir, name)
+		if err != nil {
+			continue
+		}
 		_, status := getBackupFileInfo(ctx, filePath)
 		if status == "valid" {
 			validFiles = append(validFiles, name)
@@ -263,18 +369,17 @@ func (s *BackupService) DeleteBackup(ctx context.Context, filename string) error
 		return err
 	}
 
-	targetPath := filepath.Join(s.backupDir, cleaned)
+	targetPath, _, err := secureExistingBackupPath(s.backupDir, cleaned)
+	if err != nil {
+		return fmt.Errorf("berkas cadangan '%s' tidak ditemukan atau tidak aman: %w", cleaned, err)
+	}
 	absTarget, err := filepath.Abs(targetPath)
 	if err != nil {
-		return fmt.Errorf("gagal menyelesaikan path target: %w", err)
+		return fmt.Errorf("gagal menyelesaikan jalur tujuan: %w", err)
 	}
 	absDB, _ := filepath.Abs(s.dbPath)
 	if absTarget == absDB {
 		return errors.New("penghapusan ditolak: tidak diperbolehkan menghapus berkas database aktif")
-	}
-
-	if _, err := os.Stat(targetPath); err != nil {
-		return fmt.Errorf("berkas cadangan '%s' tidak ditemukan: %w", cleaned, err)
 	}
 
 	// Aturan Retensi Minimal: jika berkas yang akan dihapus valid dan tersisa <= 1 cadangan valid, tolak
@@ -318,7 +423,10 @@ func (s *BackupService) DeleteBackups(ctx context.Context, filenames []string) (
 		if err != nil {
 			return nil, err
 		}
-		targetPath := filepath.Join(s.backupDir, cleaned)
+		targetPath, _, err := secureExistingBackupPath(s.backupDir, cleaned)
+		if err != nil {
+			return nil, fmt.Errorf("berkas cadangan '%s' tidak ditemukan atau tidak aman: %w", cleaned, err)
+		}
 		absTarget, _ := filepath.Abs(targetPath)
 		absDB, _ := filepath.Abs(s.dbPath)
 		if absTarget == absDB {
@@ -358,8 +466,16 @@ func (s *BackupService) DeleteBackups(ctx context.Context, filenames []string) (
 		}
 	}
 
-	remainingEntries, _ := s.ListBackups()
-	result.RemainingCount = len(remainingEntries)
+	remainingEntries, _ := os.ReadDir(s.backupDir)
+	for _, entry := range remainingEntries {
+		if entry.IsDir() {
+			continue
+		}
+		name := strings.ToLower(entry.Name())
+		if strings.HasSuffix(name, ".db") || strings.HasSuffix(name, ".sqlite") {
+			result.RemainingCount++
+		}
+	}
 
 	return result, nil
 }
@@ -408,10 +524,9 @@ func (s *BackupService) InspectBackup(ctx context.Context, filename string) (*do
 		return nil, err
 	}
 
-	sourcePath := filepath.Join(s.backupDir, cleaned)
-	info, err := os.Stat(sourcePath)
+	sourcePath, info, err := secureExistingBackupPath(s.backupDir, cleaned)
 	if err != nil {
-		return nil, fmt.Errorf("berkas cadangan '%s' tidak ditemukan: %w", cleaned, err)
+		return nil, fmt.Errorf("berkas cadangan '%s' tidak ditemukan atau tidak aman: %w", cleaned, err)
 	}
 
 	result := &domain.RestoreInspectionResult{
@@ -422,7 +537,16 @@ func (s *BackupService) InspectBackup(ctx context.Context, filename string) (*do
 		Warnings:      make([]string, 0),
 	}
 
-	checkDB, err := database.OpenDB(sourcePath)
+	schemaVersion, validationErr := database.ValidateDatabaseFile(inspectCtx, sourcePath)
+	result.SchemaVersion = schemaVersion
+	if validationErr != nil {
+		result.IntegrityStatus = "invalid"
+		result.Warnings = append(result.Warnings, fmt.Sprintf("Validasi database cadangan gagal: %v", validationErr))
+	} else {
+		result.IntegrityStatus = "ok"
+	}
+
+	checkDB, err := database.OpenReadOnlyDB(sourcePath)
 	if err != nil {
 		result.IntegrityStatus = fmt.Sprintf("gagal membuka berkas: %v", err)
 		result.IsCompatible = false
@@ -430,23 +554,6 @@ func (s *BackupService) InspectBackup(ctx context.Context, filename string) (*do
 		return result, nil
 	}
 	defer checkDB.Close()
-
-	var integrityResult string
-	if err := checkDB.QueryRowContext(inspectCtx, "PRAGMA integrity_check;").Scan(&integrityResult); err != nil || integrityResult != "ok" {
-		result.IntegrityStatus = integrityResult
-		result.IsCompatible = false
-		result.Warnings = append(result.Warnings, fmt.Sprintf("Integritas berkas cadangan tidak valid: %s", integrityResult))
-	} else {
-		result.IntegrityStatus = "ok"
-	}
-
-	var schemaVersion int
-	var hasMigrations int
-	_ = checkDB.QueryRowContext(inspectCtx, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='schema_migrations'").Scan(&hasMigrations)
-	if hasMigrations > 0 {
-		_ = checkDB.QueryRowContext(inspectCtx, "SELECT COALESCE(MAX(version), 0) FROM schema_migrations").Scan(&schemaVersion)
-	}
-	result.SchemaVersion = schemaVersion
 
 	// Ringkasan data cadangan
 	result.DataSummary = getDatabaseSummary(inspectCtx, checkDB)
@@ -459,7 +566,7 @@ func (s *BackupService) InspectBackup(ctx context.Context, filename string) (*do
 
 	// Evaluasi kompatibilitas dan perbedaan
 	schemaUnsupported := schemaVersion > database.MaxSupportedSchemaVersion
-	schemaMigrationNeeded := schemaVersion < database.MaxSupportedSchemaVersion && schemaVersion > 0
+	schemaMigrationNeeded := validationErr == nil && schemaVersion < database.MaxSupportedSchemaVersion && schemaVersion > 0
 	recordsLostWarning := (result.ActiveDatabaseSummary.WorkItemsCount > result.DataSummary.WorkItemsCount) ||
 		(result.ActiveDatabaseSummary.ActivityLogsCount > result.DataSummary.ActivityLogsCount)
 
@@ -469,7 +576,7 @@ func (s *BackupService) InspectBackup(ctx context.Context, filename string) (*do
 		SchemaUnsupported:     schemaUnsupported,
 	}
 
-	result.IsCompatible = (result.IntegrityStatus == "ok") && !schemaUnsupported && (schemaVersion > 0)
+	result.IsCompatible = validationErr == nil && !schemaUnsupported && schemaVersion > 0
 
 	if schemaUnsupported {
 		result.Warnings = append(result.Warnings, fmt.Sprintf("Versi skema cadangan (v%d) lebih baru dari versi maksimum yang didukung aplikasi ini (v%d). Pemulihan tidak dapat dilakukan.", schemaVersion, database.MaxSupportedSchemaVersion))
@@ -486,108 +593,216 @@ func (s *BackupService) InspectBackup(ctx context.Context, filename string) (*do
 
 // RestoreBackup memulihkan database dari file backup yang valid secara aman
 func (s *BackupService) RestoreBackup(ctx context.Context, filename string) error {
+	s.operationGate.Lock()
+	defer s.operationGate.Unlock()
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// 1. Validasi Keamanan Path Filename (Cegah Directory Traversal)
+	// 1. Validasi seluruh path sebelum membaca atau mengganti database aktif.
 	cleaned, err := validateBackupFilename(filename)
 	if err != nil {
 		return err
 	}
-
-	sourcePath := filepath.Join(s.backupDir, cleaned)
-	if _, err := os.Stat(sourcePath); err != nil {
-		return fmt.Errorf("file cadangan '%s' tidak ditemukan: %w", cleaned, err)
-	}
-
-	// 2. Validasi Integritas dan Versi Skema File Cadangan SEBELUM Menyentuh Database Aktif
-	checkDB, err := database.OpenDB(sourcePath)
+	sourcePath, sourceInfo, err := secureExistingBackupPath(s.backupDir, cleaned)
 	if err != nil {
-		return fmt.Errorf("file cadangan tidak dapat dibuka atau korup: %w", err)
+		return fmt.Errorf("berkas cadangan '%s' tidak ditemukan atau tidak aman: %w", cleaned, err)
+	}
+	activePath, dataDir, err := secureExistingDatabasePath(s.dbPath)
+	if err != nil {
+		return fmt.Errorf("database aktif tidak aman untuk dipulihkan: %w", err)
+	}
+	activeInfo, err := os.Stat(activePath)
+	if err != nil {
+		return fmt.Errorf("gagal membaca metadata database aktif: %w", err)
+	}
+	if os.SameFile(sourceInfo, activeInfo) {
+		return errors.New("pemulihan ditolak: sumber cadangan menunjuk berkas database aktif")
 	}
 
-	var integrityResult string
-	if err := checkDB.QueryRowContext(ctx, "PRAGMA integrity_check;").Scan(&integrityResult); err != nil || integrityResult != "ok" {
-		_ = checkDB.Close()
-		return fmt.Errorf("integritas file cadangan tidak valid: %s (%v)", integrityResult, err)
+	// 2. Salin sumber ke staging pada filesystem yang sama. Sumber tidak pernah
+	// dibuka writable dan database aktif belum disentuh pada tahap ini.
+	sourceFile, err := os.Open(sourcePath)
+	if err != nil {
+		return fmt.Errorf("gagal membuka berkas cadangan: %w", err)
+	}
+	defer sourceFile.Close()
+	openedInfo, err := sourceFile.Stat()
+	if err != nil || !openedInfo.Mode().IsRegular() || !os.SameFile(sourceInfo, openedInfo) {
+		return errors.New("berkas cadangan berubah atau bukan berkas biasa saat akan dibaca")
+	}
+	stagingFile, err := os.CreateTemp(dataDir, ".restore-staging-*.db")
+	if err != nil {
+		return fmt.Errorf("gagal membuat berkas sementara pemulihan: %w", err)
+	}
+	stagingPath := stagingFile.Name()
+	stagingActive := false
+	defer func() {
+		_ = stagingFile.Close()
+		if !stagingActive {
+			_ = os.Remove(stagingPath)
+		}
+	}()
+	if _, err := io.Copy(stagingFile, sourceFile); err != nil {
+		return fmt.Errorf("gagal menyalin cadangan ke berkas sementara pemulihan: %w", err)
+	}
+	if err := stagingFile.Sync(); err != nil {
+		return fmt.Errorf("gagal menyinkronkan berkas sementara pemulihan: %w", err)
+	}
+	if err := stagingFile.Close(); err != nil {
+		return fmt.Errorf("gagal menutup berkas sementara pemulihan: %w", err)
+	}
+	if err := s.injectFault("after_stage_copy", stagingPath); err != nil {
+		return fmt.Errorf("kegagalan setelah penyalinan berkas sementara pemulihan: %w", err)
 	}
 
-	var schemaVersion int
-	var hasMigrations int
-	_ = checkDB.QueryRowContext(ctx, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='schema_migrations'").Scan(&hasMigrations)
-	if hasMigrations == 0 {
-		_ = checkDB.Close()
-		return errors.New("file cadangan tidak kompatibel: tabel schema_migrations tidak ditemukan")
-	}
-	_ = checkDB.QueryRowContext(ctx, "SELECT COALESCE(MAX(version), 0) FROM schema_migrations;").Scan(&schemaVersion)
-	_ = checkDB.Close()
-
+	// 3. Verifikasi staging, migrasikan salinan bila perlu, lalu verifikasi ulang.
+	schemaVersion, err := database.ValidateDatabaseFile(ctx, stagingPath)
 	if schemaVersion > database.MaxSupportedSchemaVersion {
 		return fmt.Errorf("pemulihan ditolak: versi skema cadangan (v%d) lebih baru dari versi yang didukung aplikasi ini (v%d)", schemaVersion, database.MaxSupportedSchemaVersion)
 	}
-
-	// 3. Buat Salinan Pengaman Database Aktif Sebelum Digantikan (Safety Snapshot)
-	activeDB := s.workItemService.GetDB()
-	randBytes := make([]byte, 4)
-	_, _ = rand.Read(randBytes)
-	randSuffix := hex.EncodeToString(randBytes)
-	safetyName := fmt.Sprintf("pre_restore_safety_%s_%s.db", time.Now().UTC().Format("20060102_150405"), randSuffix)
-	safetyPath := filepath.Join(s.backupDir, safetyName)
-
-	if activeDB != nil {
-		escapedSafety := strings.ReplaceAll(safetyPath, "'", "''")
-		_, _ = activeDB.ExecContext(ctx, fmt.Sprintf("VACUUM INTO '%s'", escapedSafety))
-	}
-
-	// 4. Tutup Koneksi Database Aktif Agar File Bebas dari Lock Windows
-	if activeDB != nil {
-		if err := activeDB.Close(); err != nil {
-			return fmt.Errorf("gagal menutup koneksi database aktif: %w", err)
-		}
-	}
-
-	// 5. Salin Isi File Cadangan Menggantikan database aktif (data/compliance.db)
-	if err := copyFile(sourcePath, s.dbPath); err != nil {
-		// Rollback jika copy gagal
-		if _, statErr := os.Stat(safetyPath); statErr == nil {
-			_ = copyFile(safetyPath, s.dbPath)
-			rbDB, _ := database.OpenDB(s.dbPath)
-			if rbDB != nil {
-				s.updateServiceDBs(rbDB)
-			}
-		}
-		return fmt.Errorf("gagal menggantikan file database aktif: %w", err)
-	}
-
-	// 6. Buka Kembali Koneksi Database Baru dan Jalankan Migrasi
-	newDB, err := database.OpenDB(s.dbPath)
 	if err != nil {
-		// Rollback
-		if _, statErr := os.Stat(safetyPath); statErr == nil {
-			_ = copyFile(safetyPath, s.dbPath)
-			rbDB, _ := database.OpenDB(s.dbPath)
-			if rbDB != nil {
-				s.updateServiceDBs(rbDB)
-			}
-		}
-		return fmt.Errorf("gagal membuka kembali database setelah pemulihan: %w", err)
+		return fmt.Errorf("integritas atau struktur berkas cadangan tidak valid: %w", err)
+	}
+	stagingDB, err := database.OpenDB(stagingPath)
+	if err != nil {
+		return fmt.Errorf("gagal membuka berkas sementara pemulihan: %w", err)
+	}
+	if err := database.Migrate(ctx, stagingDB); err != nil {
+		_ = stagingDB.Close()
+		return fmt.Errorf("migrasi berkas sementara pemulihan gagal: %w", err)
+	}
+	if err := database.CheckIntegrity(ctx, stagingDB); err != nil {
+		_ = stagingDB.Close()
+		return fmt.Errorf("pemeriksaan integritas setelah migrasi gagal: %w", err)
+	}
+	if err := database.CheckForeignKeys(ctx, stagingDB); err != nil {
+		_ = stagingDB.Close()
+		return fmt.Errorf("pemeriksaan relasi data setelah migrasi gagal: %w", err)
+	}
+	if err := stagingDB.Close(); err != nil {
+		return fmt.Errorf("gagal menutup berkas sementara pemulihan: %w", err)
+	}
+	if _, err := database.ValidateDatabaseFile(ctx, stagingPath); err != nil {
+		return fmt.Errorf("verifikasi akhir berkas sementara pemulihan gagal: %w", err)
 	}
 
-	if err := database.Migrate(ctx, newDB); err != nil {
-		// ROLLBACK OTOMATIS: Migrasi pasca-restore gagal!
+	// 4. Safety snapshot wajib berhasil dan lolos integrity/FK check.
+	activeDB := s.workItemService.GetDB()
+	if activeDB == nil {
+		return errors.New("koneksi database aktif tidak tersedia")
+	}
+	backupDir, err := ensureRealDirectory(s.backupDir)
+	if err != nil {
+		return fmt.Errorf("direktori cadangan tidak aman: %w", err)
+	}
+	randSuffix, err := randomSuffix()
+	if err != nil {
+		return err
+	}
+	safetyName := fmt.Sprintf("pre_restore_safety_%s_%s.db", time.Now().UTC().Format("20060102_150405"), randSuffix)
+	safetyPath := filepath.Join(backupDir, safetyName)
+	if err := s.injectFault("before_safety_vacuum", safetyPath); err != nil {
+		return fmt.Errorf("cadangan pengaman sebelum pemulihan gagal: %w", err)
+	}
+	escapedSafety := strings.ReplaceAll(safetyPath, "'", "''")
+	if _, err := activeDB.ExecContext(ctx, fmt.Sprintf("VACUUM INTO '%s'", escapedSafety)); err != nil {
+		_ = os.Remove(safetyPath)
+		return fmt.Errorf("cadangan pengaman sebelum pemulihan gagal: %w", err)
+	}
+	if err := s.injectFault("after_safety_vacuum", safetyPath); err != nil {
+		_ = os.Remove(safetyPath)
+		return fmt.Errorf("kegagalan setelah pembuatan cadangan pengaman: %w", err)
+	}
+	if _, err := database.ValidateDatabaseFile(ctx, safetyPath); err != nil {
+		_ = os.Remove(safetyPath)
+		return fmt.Errorf("verifikasi cadangan pengaman gagal: %w", err)
+	}
+
+	// 5. Tutup pool lama, tukar file melalui rename pada filesystem yang sama,
+	// lalu buka dan verifikasi pool baru. File aktif lama tetap tersedia sebagai
+	// rollback sampai seluruh verifikasi selesai.
+	rollbackSuffix, err := randomSuffix()
+	if err != nil {
+		return err
+	}
+	rollbackPath := filepath.Join(dataDir, ".restore-rollback-"+rollbackSuffix+".db")
+	if err := activeDB.Close(); err != nil {
+		return fmt.Errorf("gagal menutup koneksi database aktif: %w", err)
+	}
+	if err := s.injectFault("after_active_close", activePath); err != nil {
+		reopenErr := s.reopenActiveDatabase(ctx, activePath)
+		return errors.Join(fmt.Errorf("kegagalan setelah koneksi aktif ditutup: %w", err), reopenErr)
+	}
+	if err := os.Rename(activePath, rollbackPath); err != nil {
+		reopenErr := s.reopenActiveDatabase(ctx, activePath)
+		return errors.Join(fmt.Errorf("gagal memindahkan database aktif ke area pemulihan: %w", err), reopenErr)
+	}
+	if err := os.Rename(stagingPath, activePath); err != nil {
+		rollbackErr := s.rollbackRestore(ctx, activePath, rollbackPath, false)
+		return errors.Join(fmt.Errorf("gagal mengaktifkan database hasil pemulihan: %w", err), rollbackErr)
+	}
+	stagingActive = true
+
+	if err := s.injectFault("after_activate", activePath); err != nil {
+		rollbackErr := s.rollbackRestore(ctx, activePath, rollbackPath, true)
+		return errors.Join(fmt.Errorf("kegagalan setelah aktivasi database hasil pemulihan: %w", err), rollbackErr)
+	}
+	newDB, err := database.OpenDB(activePath)
+	if err != nil {
+		rollbackErr := s.rollbackRestore(ctx, activePath, rollbackPath, true)
+		return errors.Join(fmt.Errorf("gagal membuka database hasil pemulihan: %w", err), rollbackErr)
+	}
+	if _, err := database.ValidateDatabaseFile(ctx, activePath); err != nil {
 		_ = newDB.Close()
-		if _, statErr := os.Stat(safetyPath); statErr == nil {
-			_ = copyFile(safetyPath, s.dbPath)
-			rbDB, _ := database.OpenDB(s.dbPath)
-			if rbDB != nil {
-				s.updateServiceDBs(rbDB)
-			}
-		}
-		return fmt.Errorf("migrasi skema pasca-pemulihan gagal, database aktif telah dikembalikan ke kondisi sebelum restore (rollback): %w", err)
+		rollbackErr := s.rollbackRestore(ctx, activePath, rollbackPath, true)
+		return errors.Join(fmt.Errorf("validasi database hasil pemulihan gagal: %w", err), rollbackErr)
 	}
 
 	s.updateServiceDBs(newDB)
+	if err := os.Remove(rollbackPath); err != nil {
+		return fmt.Errorf("pemulihan berhasil, tetapi pembersihan berkas sementara gagal: %w", err)
+	}
 	return nil
+}
+
+func (s *BackupService) reopenActiveDatabase(ctx context.Context, activePath string) error {
+	db, err := database.OpenDB(activePath)
+	if err != nil {
+		return fmt.Errorf("gagal membuka ulang database aktif: %w", err)
+	}
+	if err := database.CheckIntegrity(ctx, db); err != nil {
+		_ = db.Close()
+		return fmt.Errorf("pemeriksaan integritas database aktif gagal saat dibuka ulang: %w", err)
+	}
+	if err := database.CheckForeignKeys(ctx, db); err != nil {
+		_ = db.Close()
+		return fmt.Errorf("pemeriksaan relasi data database aktif gagal saat dibuka ulang: %w", err)
+	}
+	s.updateServiceDBs(db)
+	return nil
+}
+
+func (s *BackupService) rollbackRestore(ctx context.Context, activePath, rollbackPath string, removeActivated bool) error {
+	var rollbackErrors []error
+	if removeActivated {
+		if err := os.Remove(activePath); err != nil && !os.IsNotExist(err) {
+			rollbackErrors = append(rollbackErrors, fmt.Errorf("gagal menghapus kandidat pemulihan: %w", err))
+		}
+	}
+	if _, err := os.Stat(rollbackPath); err == nil {
+		if err := os.Rename(rollbackPath, activePath); err != nil {
+			rollbackErrors = append(rollbackErrors, fmt.Errorf("gagal mengembalikan berkas database asli: %w", err))
+		}
+	} else {
+		rollbackErrors = append(rollbackErrors, fmt.Errorf("berkas pemulihan database asli tidak tersedia: %w", err))
+	}
+	if len(rollbackErrors) == 0 {
+		if err := s.reopenActiveDatabase(ctx, activePath); err != nil {
+			rollbackErrors = append(rollbackErrors, err)
+		}
+	}
+	return errors.Join(rollbackErrors...)
 }
 
 func (s *BackupService) updateServiceDBs(db *sql.DB) {
@@ -598,23 +813,4 @@ func (s *BackupService) updateServiceDBs(db *sql.DB) {
 	if s.importSvc != nil {
 		s.importSvc.SetDB(db)
 	}
-}
-
-func copyFile(src, dst string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-
-	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-
-	if _, err := io.Copy(out, in); err != nil {
-		return err
-	}
-	return out.Sync()
 }

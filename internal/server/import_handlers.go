@@ -5,12 +5,44 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
+	"path/filepath"
 	"strconv"
+	"strings"
 
 	"compliance-workspace/internal/domain"
 	"compliance-workspace/internal/service"
 )
+
+const maxMultipartMemory = 1 << 20
+
+func parseImportMultipart(w http.ResponseWriter, r *http.Request) bool {
+	mediaType, params, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err != nil || mediaType != "multipart/form-data" || strings.TrimSpace(params["boundary"]) == "" {
+		errorResponse(w, http.StatusUnsupportedMediaType, "Content-Type harus multipart/form-data dengan boundary yang valid")
+		return false
+	}
+	if err := r.ParseMultipartForm(maxMultipartMemory); err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			errorResponse(w, http.StatusRequestEntityTooLarge, "Ukuran permintaan impor melebihi batas maksimal")
+		} else {
+			errorResponse(w, http.StatusBadRequest, "Formulir unggahan rusak atau tidak valid")
+		}
+		return false
+	}
+	return true
+}
+
+func safeUploadFilename(filename string) (string, error) {
+	filename = strings.TrimSpace(strings.ReplaceAll(filename, "\\", "/"))
+	filename = filepath.Base(filename)
+	if filename == "" || filename == "." || len(filename) > 255 {
+		return "", errors.New("nama berkas unggahan tidak valid")
+	}
+	return filename, nil
+}
 
 // -----------------------------------------------------------------------------
 // Data Import Center Handlers (Sprint 3)
@@ -19,30 +51,38 @@ import (
 // handleImportPreview memproses file unggahan secara dry-run tanpa mengubah database
 func (s *Server) handleImportPreview(w http.ResponseWriter, r *http.Request) {
 	if s.importService == nil {
-		errorResponse(w, http.StatusServiceUnavailable, "Layanan Import Center belum diinisialisasi")
+		errorResponse(w, http.StatusServiceUnavailable, "Layanan impor belum tersedia")
 		return
 	}
 
-	// Batasi ukuran form maksimal 10 MB + buffer header
-	if err := r.ParseMultipartForm(domain.MaxImportFileSize + 1024*1024); err != nil {
-		errorResponse(w, http.StatusBadRequest, fmt.Sprintf("Ukuran file melebihi batas atau form rusak: %v", err))
+	if !parseImportMultipart(w, r) {
 		return
 	}
+	defer r.MultipartForm.RemoveAll()
 
 	file, fileHeader, err := r.FormFile("file")
 	if err != nil {
-		errorResponse(w, http.StatusBadRequest, "File unggahan ('file') tidak ditemukan dalam request")
+		errorResponse(w, http.StatusBadRequest, "Berkas unggahan ('file') tidak ditemukan dalam permintaan")
 		return
 	}
 	defer file.Close()
+	filename, err := safeUploadFilename(fileHeader.Filename)
+	if err != nil {
+		errorResponse(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if fileHeader.Size > domain.MaxImportFileSize {
+		errorResponse(w, http.StatusRequestEntityTooLarge, "Ukuran berkas melebihi batas maksimal 10 MB")
+		return
+	}
 
 	fileBytes, err := io.ReadAll(io.LimitReader(file, domain.MaxImportFileSize+1))
 	if err != nil {
-		errorResponse(w, http.StatusInternalServerError, fmt.Sprintf("Gagal membaca file: %v", err))
+		errorResponse(w, http.StatusInternalServerError, fmt.Sprintf("Gagal membaca berkas: %v", err))
 		return
 	}
 	if len(fileBytes) > domain.MaxImportFileSize {
-		errorResponse(w, http.StatusBadRequest, "Ukuran file melebihi batas maksimal 10 MB")
+		errorResponse(w, http.StatusBadRequest, "Ukuran berkas melebihi batas maksimal 10 MB")
 		return
 	}
 
@@ -56,10 +96,13 @@ func (s *Server) handleImportPreview(w http.ResponseWriter, r *http.Request) {
 	}
 	var mapping map[string]string
 	if mappingJSON != "" {
-		_ = json.Unmarshal([]byte(mappingJSON), &mapping)
+		if err := json.Unmarshal([]byte(mappingJSON), &mapping); err != nil {
+			errorResponse(w, http.StatusBadRequest, "Pemetaan kolom JSON tidak valid")
+			return
+		}
 	}
 
-	preview, err := s.importService.PreviewImport(r.Context(), fileBytes, fileHeader.Filename, "", worksheet, mapping)
+	preview, err := s.importService.PreviewImport(r.Context(), fileBytes, filename, "", worksheet, mapping)
 	if err != nil {
 		errorResponse(w, http.StatusBadRequest, err.Error())
 		return
@@ -71,29 +114,38 @@ func (s *Server) handleImportPreview(w http.ResponseWriter, r *http.Request) {
 // handleImportCommit mengeksekusi commit impor secara atomik
 func (s *Server) handleImportCommit(w http.ResponseWriter, r *http.Request) {
 	if s.importService == nil {
-		errorResponse(w, http.StatusServiceUnavailable, "Layanan Import Center belum diinisialisasi")
+		errorResponse(w, http.StatusServiceUnavailable, "Layanan impor belum tersedia")
 		return
 	}
 
-	if err := r.ParseMultipartForm(domain.MaxImportFileSize + 1024*1024); err != nil {
-		errorResponse(w, http.StatusBadRequest, fmt.Sprintf("Gagal membaca payload form: %v", err))
+	if !parseImportMultipart(w, r) {
 		return
 	}
+	defer r.MultipartForm.RemoveAll()
 
 	file, fileHeader, err := r.FormFile("file")
 	if err != nil {
-		errorResponse(w, http.StatusBadRequest, "File unggahan ('file') wajib disertakan saat commit")
+		errorResponse(w, http.StatusBadRequest, "Berkas unggahan ('file') wajib disertakan saat menyimpan impor")
 		return
 	}
 	defer file.Close()
+	filename, err := safeUploadFilename(fileHeader.Filename)
+	if err != nil {
+		errorResponse(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if fileHeader.Size > domain.MaxImportFileSize {
+		errorResponse(w, http.StatusRequestEntityTooLarge, "Ukuran berkas melebihi batas maksimal 10 MB")
+		return
+	}
 
 	fileBytes, err := io.ReadAll(io.LimitReader(file, domain.MaxImportFileSize+1))
 	if err != nil {
-		errorResponse(w, http.StatusInternalServerError, fmt.Sprintf("Gagal membaca file: %v", err))
+		errorResponse(w, http.StatusInternalServerError, fmt.Sprintf("Gagal membaca berkas: %v", err))
 		return
 	}
 	if len(fileBytes) > domain.MaxImportFileSize {
-		errorResponse(w, http.StatusBadRequest, "Ukuran file melebihi batas maksimal 10 MB")
+		errorResponse(w, http.StatusBadRequest, "Ukuran berkas melebihi batas maksimal 10 MB")
 		return
 	}
 
@@ -108,11 +160,14 @@ func (s *Server) handleImportCommit(w http.ResponseWriter, r *http.Request) {
 	}
 	var mapping map[string]string
 	if mappingJSON != "" {
-		_ = json.Unmarshal([]byte(mappingJSON), &mapping)
+		if err := json.Unmarshal([]byte(mappingJSON), &mapping); err != nil {
+			errorResponse(w, http.StatusBadRequest, "Pemetaan kolom JSON tidak valid")
+			return
+		}
 	}
 
 	commitReq := domain.CommitImportRequest{
-		FileName:      fileHeader.Filename,
+		FileName:      filename,
 		Worksheet:     worksheet,
 		ColumnMapping: mapping,
 		DuplicateMode: dupMode,
@@ -130,7 +185,7 @@ func (s *Server) handleImportCommit(w http.ResponseWriter, r *http.Request) {
 // handleListImportHistory mengambil daftar riwayat batch impor
 func (s *Server) handleListImportHistory(w http.ResponseWriter, r *http.Request) {
 	if s.importService == nil {
-		errorResponse(w, http.StatusServiceUnavailable, "Layanan Import Center belum diinisialisasi")
+		errorResponse(w, http.StatusServiceUnavailable, "Layanan impor belum tersedia")
 		return
 	}
 
@@ -161,26 +216,26 @@ func (s *Server) handleListImportHistory(w http.ResponseWriter, r *http.Request)
 // handleGetImportBatch mengambil rincian satu batch beserta baris itemnya
 func (s *Server) handleGetImportBatch(w http.ResponseWriter, r *http.Request) {
 	if s.importService == nil {
-		errorResponse(w, http.StatusServiceUnavailable, "Layanan Import Center belum diinisialisasi")
+		errorResponse(w, http.StatusServiceUnavailable, "Layanan impor belum tersedia")
 		return
 	}
 
 	idStr := r.PathValue("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil || id <= 0 {
-		errorResponse(w, http.StatusBadRequest, "ID batch tidak valid")
+		errorResponse(w, http.StatusBadRequest, "ID proses impor tidak valid")
 		return
 	}
 
 	batch, err := s.importService.GetBatchByID(r.Context(), id)
 	if err != nil {
-		errorResponse(w, http.StatusNotFound, "Batch impor tidak ditemukan")
+		errorResponse(w, http.StatusNotFound, "Proses impor tidak ditemukan")
 		return
 	}
 
 	items, err := s.importService.GetBatchItems(r.Context(), id)
 	if err != nil {
-		errorResponse(w, http.StatusInternalServerError, fmt.Sprintf("Gagal mengambil rincian item batch: %v", err))
+		errorResponse(w, http.StatusInternalServerError, fmt.Sprintf("Gagal mengambil rincian proses impor: %v", err))
 		return
 	}
 	if items == nil {
@@ -197,14 +252,14 @@ func (s *Server) handleGetImportBatch(w http.ResponseWriter, r *http.Request) {
 // handleCompensateImportBatch membatalkan hasil impor batch melalui tindakan kompensasi (arsip)
 func (s *Server) handleCompensateImportBatch(w http.ResponseWriter, r *http.Request) {
 	if s.importService == nil {
-		errorResponse(w, http.StatusServiceUnavailable, "Layanan Import Center belum diinisialisasi")
+		errorResponse(w, http.StatusServiceUnavailable, "Layanan impor belum tersedia")
 		return
 	}
 
 	idStr := r.PathValue("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil || id <= 0 {
-		errorResponse(w, http.StatusBadRequest, "ID batch tidak valid")
+		errorResponse(w, http.StatusBadRequest, "ID proses impor tidak valid")
 		return
 	}
 
@@ -224,7 +279,7 @@ func (s *Server) handleCompensateImportBatch(w http.ResponseWriter, r *http.Requ
 			})
 			return
 		}
-		errorResponse(w, http.StatusBadRequest, fmt.Sprintf("Gagal melakukan kompensasi pembatalan batch: %v", err))
+		errorResponse(w, http.StatusBadRequest, fmt.Sprintf("Gagal membatalkan proses impor: %v", err))
 		return
 	}
 
@@ -232,7 +287,7 @@ func (s *Server) handleCompensateImportBatch(w http.ResponseWriter, r *http.Requ
 		"status":            domain.ImportStatusRolledBack,
 		"batch_id":          id,
 		"compensated_count": compensatedCount,
-		"message":           fmt.Sprintf("Batch berhasil dibatalkan melalui kompensasi: %d pekerjaan diarsipkan.", compensatedCount),
+		"message":           fmt.Sprintf("Proses impor berhasil dibatalkan. %d pekerjaan diarsipkan.", compensatedCount),
 	}
 	jsonResponse(w, http.StatusOK, response)
 }
@@ -240,24 +295,24 @@ func (s *Server) handleCompensateImportBatch(w http.ResponseWriter, r *http.Requ
 // handleGetImportErrorReport mengunduh laporan error / skip dalam format CSV ber-BOM UTF-8
 func (s *Server) handleGetImportErrorReport(w http.ResponseWriter, r *http.Request) {
 	if s.importService == nil {
-		errorResponse(w, http.StatusServiceUnavailable, "Layanan Import Center belum diinisialisasi")
+		errorResponse(w, http.StatusServiceUnavailable, "Layanan impor belum tersedia")
 		return
 	}
 
 	idStr := r.PathValue("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil || id <= 0 {
-		errorResponse(w, http.StatusBadRequest, "ID batch tidak valid")
+		errorResponse(w, http.StatusBadRequest, "ID proses impor tidak valid")
 		return
 	}
 
 	csvBytes, err := s.importService.GenerateErrorReportCSV(r.Context(), id)
 	if err != nil {
-		errorResponse(w, http.StatusInternalServerError, fmt.Sprintf("Gagal menghasilkan laporan error: %v", err))
+		errorResponse(w, http.StatusInternalServerError, fmt.Sprintf("Gagal membuat laporan kegagalan: %v", err))
 		return
 	}
 
-	filename := fmt.Sprintf("laporan_error_batch_%d.csv", id)
+	filename := fmt.Sprintf("laporan_kegagalan_impor_%d.csv", id)
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
 	w.WriteHeader(http.StatusOK)
