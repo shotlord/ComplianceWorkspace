@@ -196,9 +196,9 @@ Untuk memindahkan aplikasi ke perangkat laptop lain, cukup matikan aplikasi dan 
 ## Dokumentasi Teknis Terkait
 
 Untuk pemahaman teknis mendalam mengenai arsitektur, basis data, dan tata kelola rilis:
-- **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**: Diagram arsitektur, pipeline middleware, spesifikasi endpoint REST API, dan alur data internal.
-- **[docs/DATABASE.md](docs/DATABASE.md)**: Skema DDL tabel SQLite, indeks performa, transaksi atomik, migrasi 001–006, dan pola tombstone penghapusan aman.
-- **[docs/BUILDING.md](docs/BUILDING.md)**: Prosedur kompilasi biner Windows x64, kompilasi resource ikon `go-winres`, dan packaging rilis.
-- **[docs/TESTING.md](docs/TESTING.md)**: Panduan pengujian unit, integrasi, static checks, targeted regression, serta cakupan dan batas portable smoke test.
+- **[ARCHITECTURE.md](docs/ARCHITECTURE.md)**: Diagram arsitektur, pipeline middleware, spesifikasi endpoint REST API, dan alur data internal.
+- **[DATABASE.md](docs/DATABASE.md)**: Skema DDL tabel SQLite, indeks performa, transaksi atomik, migrasi 001–006, dan pola tombstone penghapusan aman.
+- **[BUILDING.md](docs/BUILDING.md)**: Prosedur kompilasi biner Windows x64, kompilasi resource ikon `go-winres`, dan packaging rilis.
+- **[TESTING.md](docs/TESTING.md)**: Panduan pengujian unit, integrasi, static checks, targeted regression, serta cakupan dan batas portable smoke test.
 - **[SECURITY.md](SECURITY.md)**: Model keamanan, batas penggunaan, dan cara melaporkan kerentanan tanpa data sensitif.
 - **[CHANGELOG.md](CHANGELOG.md)**: Catatan riwayat perubahan dan peningkatan setiap rilis.
